@@ -1,0 +1,46 @@
+# listen_ip = "0.0.0.0"
+port = 8989
+# MUST match one of the entries under dynamo.nodes
+node_id = "172.17.0.2"
+enable_debug = true
+
+[dynamo]
+data_dir = "/var/lib/chronosdb"
+n_replicas = 1
+read_quorum = 1
+write_quorum = 0
+# node_weight = 1.0
+handoff_interval = 30
+# key_transfer_interval = 30 # how often to check if a local key should be transferred to other nodes
+# key_transfer_batch_size = 10000 # number of metrics to batch on each request while transferring a key
+# key_recv_timeout = 60 # time after which a node will assume a key transfer is no longer in progress
+# time (in seconds) to wait before leaving write-only mode/consider recovery completed, after the last write
+# request from a hinted handoff or key transfer
+recovery_grace_period = 60
+# maximum amount of time to wait for a connection to complete
+connect_timeout = 500 # ms
+# includes connection time, any redirects, and reading the response body
+client_timeout = 3000 #ms
+max_retries = 3
+  # hostname/ip address == weight
+  [dynamo.nodes]
+    "172.17.0.2" = 1.0
+    "172.17.0.3" = 1.0
+
+[influxdb]
+#  port = 8086
+admin_user = "adminUser"
+admin_password = "adminPasswd"
+# maximum amount of time to wait for a connection to complete
+connect_timeout = 500 # ms
+# includes connection time, any redirects, and reading the response body
+client_timeout = 3000 #ms
+max_retries = 3
+  # database credentials
+  [influxdb.credentials]
+    [influxdb.credentials.telegraf]
+      user = "asdfu"
+      password = "asdfp"
+    [influxdb.credentials.apache]
+      user = "asdfua"
+      password = "asdfpa"

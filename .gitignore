@@ -13,5 +13,19 @@
 # Project-local glide cache, RE: https://github.com/Masterminds/glide/issues/736
 .glide/
 
+# IDE
 chronosdb.iml
 .idea
+
+# Emacs
+*~
+
+# simple scripts and data samples for local development
+development
+
+# main binary and profiler output
+chronosdb
+*.prof
+
+# random thoughts and ideas
+notes
