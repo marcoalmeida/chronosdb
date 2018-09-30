@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
-	// _ "net/http/pprof"
+	_ "net/http/pprof"
 	"os"
 	"time"
 
