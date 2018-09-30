@@ -12,9 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
-
 // Setup handlers, listen and serve ChronosDB
-func run(app *appCfg) {
+func serve(app *appCfg) {
 	// compatible with InfluxDB
 	//"/write"
 	//"/query"
@@ -44,7 +43,6 @@ func run(app *appCfg) {
 		app.logger.Error("Server error", zap.Error(err))
 	}
 }
-
 
 //
 // ChronosDB endpoints
@@ -151,7 +149,6 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 	}
 }
 
-
 //
 // InfluxDB core endpoints
 //
@@ -215,7 +212,6 @@ func queryHandler(app *appCfg) http.HandlerFunc {
 	}
 }
 
-
 //
 // InfluxDB endpoints for the Prometheus remote read and write API (v1)
 //
@@ -234,7 +230,6 @@ func prometheusMetricsV1(app *appCfg) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 	}
 }
-
 
 //
 // Helper methods for sending responses

@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// directory structure and modus operandi for hinted handoff
+// directory structure and modus operandi for hinted hand off
 //
 // this package takes care of writing hints to the local filesystem
 // in order to make sure the background tasks that replay hints will not see a partially written payload, the
@@ -49,9 +49,9 @@ type Hint struct {
 	Node string
 	URI  string
 	// keep db and measurement for easier access to these values (e.g., logging)
-	Key     *coretypes.Key
-	Payload []byte
-	file    string
+	Key      *coretypes.Key
+	Payload  []byte
+	filePath string
 }
 
 type Cfg struct {
@@ -86,7 +86,7 @@ func (h *Cfg) processingDir(node string) string {
 	return h.getPath(node, processingDirectoryName)
 }
 
-// save a hint locally to replay later
+// Store saves a hint in the local file system. A background process will hand it off once the target node is available.
 func (h *Cfg) Store(hint *Hint) error {
 	tmpDir := h.tmpDir(hint.Node)
 	newDir := h.newDir(hint.Node)
@@ -99,6 +99,7 @@ func (h *Cfg) Store(hint *Hint) error {
 		return err
 	}
 
+	// TODO: use time.Now().UnixNano() as the file name to simplify sorting by timestamp
 	fTmp, err := ioutil.TempFile(tmpDir, "")
 	if err != nil {
 		return err
@@ -138,7 +139,8 @@ func (h *Cfg) Store(hint *Hint) error {
 	return nil
 }
 
-// fetch and return the components of a (any) saved hint
+// TODO: sort by time stamp and deliver older hints first
+// Fetch finds and returns a (any) saved hint that should be handed off
 func (h *Cfg) Fetch() (*Hint, error) {
 	// list nodes
 	nodes, err := ioutil.ReadDir(h.hintsRoot())
@@ -191,11 +193,11 @@ func (h *Cfg) Fetch() (*Hint, error) {
 
 			lines := bytes.Split(data, []byte("\n"))
 			return &Hint{
-				Node:    string(lines[0]),
-				URI:     string(lines[1]),
-				Key:     coretypes.KeyFromString(string(lines[2])),
-				Payload: bytes.Join(lines[3:], []byte("\n")),
-				file:    fProcessing.Name(),
+				Node:     string(lines[0]),
+				URI:      string(lines[1]),
+				Key:      coretypes.KeyFromString(string(lines[2])),
+				Payload:  bytes.Join(lines[3:], []byte("\n")),
+				filePath: fProcessing.Name(),
 			}, nil
 		}
 	}
@@ -204,15 +206,55 @@ func (h *Cfg) Fetch() (*Hint, error) {
 	return nil, nil
 }
 
+// Remove deletes a given hint from the local file system
 func (h *Cfg) Remove(contents *Hint) error {
-	h.logger.Debug("Removing processed hint", zap.String("file", contents.file))
-	return os.Remove(contents.file)
+	h.logger.Debug("Removing already handed off hint", zap.String("file", contents.filePath))
+	return os.Remove(contents.filePath)
 }
 
-// move dangling files from the `processing` to `new` for re-processing (such files will exist if some handoff
-// process was interrupted)
-// this function should be called only once, on startup
-func (h *Cfg) Recover() {
+// RemoveStale removes hints intended to nodes that are no longer active
+func (h *Cfg) RemoveStale(activeNodes []string) {
+	h.logger.Info("Starting the removal of stale hints...")
+
+	targets, err := ioutil.ReadDir(h.hintsRoot())
+	if err != nil {
+		h.logger.Error("Failed to list the root directory for hints", zap.Error(err))
+		return
+	}
+
+	for _, t := range targets {
+		exists := false
+		for _, n := range activeNodes {
+			if t.Name() == n {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			path := filepath.Join(h.hintsRoot(), t.Name())
+			h.logger.Info(
+				"Removing hint",
+				zap.String("node", t.Name()),
+				zap.String("path", path),
+			)
+			// actually delete the file
+			if err := os.Remove(path); err != nil {
+				h.logger.Error(
+					"Failed to remove hint",
+					zap.String("node", t.Name()),
+					zap.String("path", path),
+					zap.Error(err),
+				)
+			}
+		}
+	}
+
+	h.logger.Info("Finished the removal of stale hints...")
+}
+
+// RestoreDangling moves dangling files from the `processing` state back to `new` for re-processing. Dangling hints
+// will exist if the hand off process was interrupted
+func (h *Cfg) RestoreDangling() {
 	h.logger.Info("Starting recovery of dangling hints...")
 
 	nodes, err := ioutil.ReadDir(h.hintsRoot())
@@ -250,45 +292,13 @@ func (h *Cfg) Recover() {
 	h.logger.Info("Finished recovery of dangling hints...")
 }
 
-// remove stale hints, i.e., intended for nodes that are no longer part of the ring
-func (h *Cfg) RemoveStale(ring []string) {
-	h.logger.Info("Starting removal of stale hints...")
-
-	targets, err := ioutil.ReadDir(h.hintsRoot())
-	if err != nil {
-		h.logger.Error("Failed to list hints root directory", zap.Error(err))
-		return
-	}
-
-	for _, t := range targets {
-		exists := false
-		for _, n := range ring {
-			if t.Name() == n {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			path := filepath.Join(h.hintsRoot(), t.Name())
-			h.logger.Info(
-				"Deleting stale hints",
-				zap.String("node", t.Name()),
-				zap.String("path", path),
-			)
-			os.Remove(path)
-		}
-	}
-
-	h.logger.Info("Finished removal of stale hints...")
-}
-
-// move the hint back to `new`
-func (h *Cfg) Return(hint *Hint) {
-	src := hint.file
+// SaveForRerun moves a hint from the `processing` state back to `new`
+func (h *Cfg) SaveForRerun(hint *Hint) {
+	src := hint.filePath
 	splitPath := strings.Split(src, "/")
 	hintName := splitPath[len(splitPath)-1]
-	// TODO: could there be a collision if some other hint was generated with the same name in the meantime?
-	// should we just generate a new name?
+	// the name is generated using nanoseconds from Epoch and this one in particular will be in the past so it's
+	// impossible to have a collision and this operation is safe
 	dst := h.newDir(hint.Node) + "/" + hintName
 
 	err := os.Rename(src, dst)
@@ -297,6 +307,7 @@ func (h *Cfg) Return(hint *Hint) {
 	}
 }
 
+// create a directory structure if it does not yet exist (or return an error trying)
 func ensureDirectory(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		err := os.MkdirAll(path, 0755)
