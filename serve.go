@@ -12,29 +12,43 @@ import (
 	"go.uber.org/zap"
 )
 
+
+// Setup handlers, listen and serve ChronosDB
 func run(app *appCfg) {
 	// compatible with InfluxDB
 	//"/write"
 	//"/query"
 	// status | health -> number of nodes, key transfer, handoffs, ...
 
-	listenOn := fmt.Sprintf("%s:%d", app.cfg.ListenIP, app.cfg.Port)
-
+	// ChronosDB endpoints
 	http.HandleFunc("/ring/", ringHandler(app))
 	http.HandleFunc("/db/", dbHandler(app))
-	http.HandleFunc("/write", writeHandler(app))
-	http.HandleFunc("/query", queryHandler(app))
 	http.HandleFunc("/key/", keyHandler(app))
 	http.HandleFunc("/status", statusHandler(app))
+	// InfluxDB core endpoints
+	http.HandleFunc("/write", writeHandler(app))
+	http.HandleFunc("/query", queryHandler(app))
+	// InfluxDB endpoints for the Prometheus remote read and write API
+	http.HandleFunc("/api/v1/prom/read", prometheusReadV1(app))
+	http.HandleFunc("/api/v1/prom/write", prometheusWriteV1(app))
+	http.HandleFunc("/api/v1/prom/metrics", prometheusMetricsV1(app))
+
 	app.logger.Info(
 		"Ready and listening",
 		zap.Int64("port", app.cfg.Port),
 		zap.String("IP", app.cfg.ListenIP))
+
+	listenOn := fmt.Sprintf("%s:%d", app.cfg.ListenIP, app.cfg.Port)
 	err := http.ListenAndServe(listenOn, nil)
 	if err != nil {
 		app.logger.Error("Server error", zap.Error(err))
 	}
 }
+
+
+//
+// ChronosDB endpoints
+//
 
 func statusHandler(app *appCfg) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +151,11 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 	}
 }
 
+
+//
+// InfluxDB core endpoints
+//
+
 // the /write and /query endpoints should be 100% compatible with InfluxDB
 //
 // extends InfluxDB's /write API by accepting an extra parameter, forward=false, to
@@ -195,6 +214,31 @@ func queryHandler(app *appCfg) http.HandlerFunc {
 		sendResponsePassThrough(w, response, status)
 	}
 }
+
+
+//
+// InfluxDB endpoints for the Prometheus remote read and write API (v1)
+//
+
+func prometheusReadV1(app *appCfg) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+	}
+}
+
+func prometheusWriteV1(app *appCfg) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+	}
+}
+
+func prometheusMetricsV1(app *appCfg) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+	}
+}
+
+
+//
+// Helper methods for sending responses
+//
 
 func sendResponsePassThrough(w http.ResponseWriter, data []byte, status int) {
 	w.WriteHeader(status)
