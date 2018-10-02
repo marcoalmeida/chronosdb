@@ -33,7 +33,9 @@ func (dyn *Dynamo) createForwardURL(node string, uri string) string {
 	return u.String()
 }
 
-func (dyn *Dynamo) setHintedHandoffURL(uri string) string {
+// expand and existing URL to include the internal query string marker that signals a handoff
+// also include the key being handed off just for convenience
+func (dyn *Dynamo) createHandoffURL(uri string, key *coretypes.Key) string {
 	u, err := url.ParseRequestURI(uri)
 	if err != nil {
 		return ""
@@ -41,6 +43,7 @@ func (dyn *Dynamo) setHintedHandoffURL(uri string) string {
 
 	q := u.Query()
 	q.Set(qsHandoff, "true")
+	q.Set(qsKey, key.String())
 	u.RawQuery = q.Encode()
 
 	return u.String()
@@ -52,10 +55,10 @@ func (dyn *Dynamo) requestIsHintedHandoff(form url.Values) bool {
 
 }
 
-// not pretty, tightly coupled with an InfluxDB URL and overloading it, but we need to create the URL somehow and
+// TODO
+// not pretty, tightly coupled with an InfluxDB URL and overloading it, but we need to create the URL somehow,
 // somewhere.
-// one day we may have our own interface and a layer for compatibility with InfluxDB and this will be the right place
-// to create this type of URL
+// maybe the influxdb package could return a base URL that this function then expands (similarly to createHandoffURL)?
 func (dyn *Dynamo) createKeyTransferURL(key *coretypes.Key) string {
 	return fmt.Sprintf("/write?db=%s&%s=%s&%s=true", key.DB, qsKey, key.String(), qsTransfer)
 }

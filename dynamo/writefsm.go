@@ -251,7 +251,7 @@ func (dyn *Dynamo) fsmStoreHint(
 
 	return h.Store(&hint.Hint{
 		Node:    node,
-		URI:     dyn.setHintedHandoffURL(uri),
+		URI:     dyn.createHandoffURL(uri, key),
 		Key:     key,
 		Payload: payload,
 	})
