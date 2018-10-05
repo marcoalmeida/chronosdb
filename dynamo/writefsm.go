@@ -22,7 +22,7 @@ type fsmWriteResult struct {
 type fsmForwardWriteResult struct {
 	// target node
 	node string
-	// propagate the response body and status code from InfluxDB
+	// propagate the httpResponse body and status code from InfluxDB
 	httpStatus int
 	response   []byte
 }
@@ -68,7 +68,7 @@ func (dyn *Dynamo) fsmStartWrite(uri string, form url.Values, payload []byte) (i
 				)
 			}
 		}
-		// if we made it this far, all writes succeeded and any (status, response) pair is good to return
+		// if we made it this far, all writes succeeded and any (status, httpResponse) pair is good to return
 		return status, response
 	} else {
 		// write locally
@@ -168,7 +168,7 @@ func (dyn *Dynamo) fsmCheckWriteQuorum(
 				zap.String("node", result.node),
 				zap.String("key", key.String()),
 				zap.Int("status", result.httpStatus),
-				zap.ByteString("response", result.response),
+				zap.ByteString("httpResponse", result.response),
 			)
 			resultsChan <- fsmWriteResult{
 				key:        key,

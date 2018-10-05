@@ -1,5 +1,10 @@
 package responsetypes
 
+import (
+	"github.com/marcoalmeida/chronosdb/coretypes"
+	"time"
+)
+
 type Error struct {
 	Message string `json:"error,omitempty"`
 	Node    string `json:"node,omitempty"`
@@ -18,6 +23,6 @@ type GetDBs struct {
 }
 
 type NodeStatus struct {
-	Recovering   bool `json:"recovering"`
+	Recovering   map[*coretypes.Key]time.Time `json:"recovering"`
 	Initializing bool `json:"initializing"`
 }

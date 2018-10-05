@@ -10,6 +10,7 @@ import (
 
 	"github.com/marcoalmeida/chronosdb/config"
 	"github.com/marcoalmeida/chronosdb/dynamo"
+	"github.com/marcoalmeida/chronosdb/influxdb"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -26,18 +27,43 @@ func init() {
 
 func main() {
 	// logging
+	logger, atom := setupLogging()
+	// flush the buffer before exiting
+	defer logger.Sync()
+
+	// parse the configuration file
+	cfg := mustParseConfig(logger, atom)
+
+	// make sure InfluxDB is up and running -- there's no point on proceeding otherwise
+	waitForInfluxDB(&cfg.InfluxDB, logger)
+
+	// application instance
+	app := &appCfg{
+		cfg:    cfg,
+		logger: logger,
+		dynamo: dynamo.New(cfg.Port, &cfg.Dynamo, &cfg.InfluxDB, logger),
+	}
+	// start Dynamo-related tasks (these run in the background and do not block)
+	app.dynamo.Start()
+	// listen and serve ChronosDB (most of the Dynamo-related tasks above )
+	serve(app)
+}
+
+func setupLogging() (*zap.Logger, *zap.AtomicLevel) {
 	atom := zap.NewAtomicLevel()
 	encoderCfg := zap.NewProductionEncoderConfig()
 	encoderCfg.TimeKey = "timestamp"
 	encoderCfg.EncodeTime = zapcore.ISO8601TimeEncoder
-	logger := zap.New(zapcore.NewCore(
-		zapcore.NewJSONEncoder(encoderCfg),
-		zapcore.Lock(os.Stdout),
-		atom,
-	))
-	// flush the buffer before exiting
-	defer logger.Sync()
 
+	return zap.New(zapcore.NewCore(
+			zapcore.NewJSONEncoder(encoderCfg),
+			zapcore.Lock(os.Stdout),
+			atom),
+		),
+		&atom
+}
+
+func mustParseConfig(logger *zap.Logger, atom *zap.AtomicLevel) *config.MainCfg {
 	var cfgFile = flag.String("cfg", "", "path to the configuration file")
 	flag.Parse()
 
@@ -46,20 +72,20 @@ func main() {
 	if err != nil {
 		logger.Fatal("Configuration error:", zap.Error(err))
 	}
-	// having parsed the configuration file, set the correct log level
+
+	// set the correct log level
 	if cfg.EnableDebug {
 		atom.SetLevel(zap.DebugLevel)
 	}
-
 	logger.Debug("Application configuration", zap.String("options", fmt.Sprintf("%+v", cfg)))
 
-	// application instance
-	app := &appCfg{
-		cfg:    cfg,
-		logger: logger,
-		dynamo: dynamo.New(cfg.Port, &cfg.Dynamo, &cfg.InfluxDB, logger),
-	}
+	return cfg
+}
 
-	// start the main app
-	run(app)
+func waitForInfluxDB(cfg *influxdb.Cfg, logger *zap.Logger) {
+	idb := influxdb.New(cfg, logger)
+	for !idb.IsAlive() {
+		logger.Debug("Waiting for InfluxDB to report being alive and healthy...")
+		time.Sleep(time.Duration(3) * time.Second)
+	}
 }

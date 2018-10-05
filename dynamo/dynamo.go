@@ -36,6 +36,7 @@ type Cfg struct {
 	NodeID               string             `toml:"node_id"`
 	NumberOfReplicas     int                `toml:"n_replicas"`
 	WriteQuorum          int                `toml:"write_quorum"`
+	ReadQuorum           int                `toml:"read_quorum"`
 	HandoffInterval      int                `toml:"handoff_interval"`
 	KeyTransferInterval  int                `toml:"key_transfer_interval"`
 	KeyTransferBatchSize int                `toml:"key_transfer_batch_size"`
@@ -54,15 +55,15 @@ type Dynamo struct {
 	hints         *hint.Cfg
 	httpClient    *http.Client
 	influxDB      *influxdb.InfluxDB
-	// receiving data from a hinted handoff or key transfer
-	inRecovery bool
 	// node is still initializing
-	isInitializing        bool
-	lastRecoveryTimestamp time.Time
-	recoveryLock          sync.RWMutex
-	// keep track of keys being transferred
-	keyRecvTimestamp map[*coretypes.Key]time.Time
-	keyRecvLock      sync.RWMutex
+	isInitializing bool
+	// receiving data from a hinted handoff or key transfer
+	inRecovery map[*coretypes.Key]time.Time
+	// lastRecoveryTimestamp map[*coretypes.Key]time.Time
+	recoveryLock sync.RWMutex
+	//// keep track of keys being transferred
+	//keyRecvTimestamp map[*coretypes.Key]time.Time
+	//keyRecvLock      sync.RWMutex
 }
 
 func New(chronosDBPort int64, dynamoCFG *Cfg, influxDBCFG *influxdb.Cfg, logger *zap.Logger) *Dynamo {
@@ -73,59 +74,58 @@ func New(chronosDBPort int64, dynamoCFG *Cfg, influxDBCFG *influxdb.Cfg, logger 
 		ring.AddNode(hrw.Node{Name: node, Weight: weight})
 	}
 
-	hints := hint.New(dynamoCFG.DataDirectory, logger)
-	// make sure we don't have any dangling hints, i.e., handoff started but was interrupted
-	hints.Recover()
-	// delete stale hints, i.e., intended for nodes that are no longer part of the ring
-	hints.RemoveStale(ring.GetAllNodes())
-
 	// dynamo instance to return
-	dynamo := &Dynamo{
+	return &Dynamo{
 		cfg:           dynamoCFG,
 		chronosDBPort: chronosDBPort,
 		ring:          ring,
-		hints:         hints,
+		hints:         hint.New(dynamoCFG.DataDirectory, logger),
 		// always start in recovery mode to make sure we give it enough time for hints to start replaying or
 		// key transfer operations to begin before accepting queries
 		// the recovery grace period should be (2x?) higher than the hints handoff interval to make sure we don't exit
 		// recovery mode *before* hints start to be replayed
-		inRecovery:            true,
-		lastRecoveryTimestamp: time.Now(),
-		// keep track of key transfer operations
-		keyRecvTimestamp: make(map[*coretypes.Key]time.Time, 0),
-		// if the node is not initializing, the first function call will update this value
 		isInitializing: true,
-		logger:         logger,
-		httpClient:     shared.NewHTTPClient(dynamoCFG.ConnectTimeout, dynamoCFG.ClientTimeout),
-		influxDB:       influxdb.New(influxDBCFG, logger),
+		inRecovery:     make(map[*coretypes.Key]time.Time, 0),
+		// lastRecoveryTimestamp: make(map[*coretypes.Key]time.Time, 0),
+		// TODO: isn't there a cleaner way of doing this?
+		// // keep track of key transfer operations
+		// keyRecvTimestamp: make(map[*coretypes.Key]time.Time, 0),
+		// TODO: this should be part of the bootstrap process and probably not even in the struct
+		// // if the node is not initializing, the first function call will update this value
+		// isInitializing: true,
+		logger:     logger,
+		httpClient: shared.NewHTTPClient(dynamoCFG.ConnectTimeout, dynamoCFG.ClientTimeout),
+		influxDB:   influxdb.New(influxDBCFG, logger),
 	}
+}
 
-	// make sure InfluxDB is up and running -- no point on proceeding otherwise
-	if !dynamo.influxDB.IsAlive() {
-		dynamo.logger.Fatal("Failed to connect to InfluxDB")
-	}
+func (dyn *Dynamo) Start() {
+	// cleanup hints: make sure we don't have any dangling hints (i.e., handoff started but was interrupted) and
+	// delete stale hints (i.e., intended for nodes that are no longer part of the ring)
+	dyn.hints.RestoreDangling()
+	dyn.hints.RemoveStale(dyn.ring.GetAllNodes())
 
 	// initialize the node -- create all DBs
 	// it needs to be a background task so that New() returns leaving ChronosDB operating in a normal way and
 	// accepting all write requests
 	//
 	// the node stays in recovery mode while it is initializing
-	go dynamo.initialize()
+	go dyn.initialize()
 	// background task to replay locally stored hints
-	go dynamo.replayHints()
-	// background task to push local keys to other nodes
-	go dynamo.transferKeys()
+	go dyn.replayHints()
+	// TODO: this could/should be something that's explicitly called when a new node is added or a request to
+	// rebalance comes in
+	// // background task to push local keys to other nodes
+	// go dynamo.transferKeys()
 	// background task to check for the last write in recover mode and exit it if past the grace period (and not
 	// isInitializing)
-	go dynamo.checkAndExitRecoveryMode()
-
-	return dynamo
+	go dyn.checkAndExitRecoveryMode()
 }
 
 func (dyn *Dynamo) NodeStatus() *responsetypes.NodeStatus {
 	return &responsetypes.NodeStatus{
 		Initializing: dyn.isInitializing,
-		Recovering:   dyn.recovering(),
+		Recovering:   dyn.inRecovery,
 	}
 }
 
@@ -216,7 +216,7 @@ func (dyn *Dynamo) createOrDropDB(uri string, form url.Values, db string, action
 						zap.String("db", db),
 						zap.String("action", action),
 						zap.String("node", dyn.cfg.NodeID),
-						zap.ByteString("response", response),
+						zap.ByteString("httpResponse", response),
 						zap.Error(err),
 					)
 					// try to rollback
@@ -266,12 +266,6 @@ func (dyn *Dynamo) Write(uri string, form url.Values, payload []byte) (int, []by
 }
 
 func (dyn *Dynamo) Query(uri string, form url.Values) (int, []byte) {
-	// don't respond to queries if recovering and not coordinating -- nodes recovering are still able to
-	// coordinate/forward requests
-	if dyn.recovering() && !dyn.nodeIsCoordinator(form) {
-		return http.StatusServiceUnavailable, []byte("in recovery")
-	}
-
 	return dyn.fsmStartQuery(uri, form)
 }
 
@@ -325,22 +319,23 @@ func (dyn *Dynamo) DoesKeyExist(key *coretypes.Key) (bool, error) {
 }
 
 // return true iff in recovery
-func (dyn *Dynamo) recovering() bool {
+func (dyn *Dynamo) isRecovering(key *coretypes.Key) bool {
 	dyn.recoveryLock.RLock()
-	r := dyn.inRecovery
+	_, ok := dyn.inRecovery[key]
 	dyn.recoveryLock.RUnlock()
 
-	return r
+	return ok
 }
 
-// if the request is either a hint being handed off or part of a key transfer, put the node in recovery mode
-// and update the timestamp
+// if the request is either a hint being handed off or part of a key transfer, put the node in recovery mode and
+// update the timestamp (for the key being written)
 func (dyn *Dynamo) checkAndSetRecoveryMode(form url.Values) {
 	if dyn.requestIsHintedHandoff(form) || dyn.requestIsKeyTransfer(form) {
-		dyn.logger.Info("Putting node in recovery mode")
+		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
+		key := dyn.getKeyFromURL(form)
+		dyn.logger.Info("Putting node in recovery mode", zap.String("key", key.String()))
 		dyn.recoveryLock.Lock()
-		dyn.inRecovery = true
-		dyn.lastRecoveryTimestamp = time.Now()
+		dyn.inRecovery[key] = time.Now()
 		dyn.recoveryLock.Unlock()
 	}
 }
@@ -359,18 +354,21 @@ func (dyn *Dynamo) checkAndExitRecoveryMode() {
 	}
 
 	for {
+		done := make([]*coretypes.Key, 0)
+
 		dyn.recoveryLock.RLock()
-		recovering := dyn.inRecovery
-		lastWrite := dyn.lastRecoveryTimestamp
+		for k, t := range dyn.inRecovery {
+			if time.Since(t) >= (time.Second * time.Duration(dyn.cfg.RecoveryGracePeriod)) {
+				done = append(done, k)
+			}
+		}
 		dyn.recoveryLock.RUnlock()
 
-		if recovering {
-			if time.Since(lastWrite) >= (time.Second * time.Duration(dyn.cfg.RecoveryGracePeriod)) {
-				dyn.logger.Debug("Exiting recovery mode")
-				dyn.recoveryLock.Lock()
-				dyn.inRecovery = false
-				dyn.recoveryLock.Unlock()
-			}
+		for _, k := range done {
+			dyn.logger.Debug("Exiting recovery mode", zap.String("key", k.String()))
+			dyn.recoveryLock.Lock()
+			delete(dyn.inRecovery, k)
+			dyn.recoveryLock.Unlock()
 		}
 
 		dyn.logger.Debug("Sleeping for checking recovery mode", zap.Int("time", dyn.cfg.RecoveryGracePeriod))
@@ -440,7 +438,7 @@ func (dyn *Dynamo) replayHints() {
 				wait = dyn.cfg.HandoffInterval
 			}
 			// save the hint for replaying later
-			dyn.hints.Return(hint)
+			dyn.hints.SaveForRerun(hint)
 		}
 	}
 }
@@ -462,8 +460,8 @@ func (dyn *Dynamo) transferKeys() {
 	dyn.logger.Info("Starting background task for transferring keys")
 	for {
 		// don't transfer if receiving
-		for dyn.keyRecvPending(nil) || dyn.recovering() {
-			dyn.logger.Debug("Delaying key transfer while recovering and/or receiving keys")
+		for dyn.keyRecvPending(nil) || dyn.isRecovering() {
+			dyn.logger.Debug("Delaying key transfer while isRecovering and/or receiving keys")
 			time.Sleep(time.Second * 3)
 		}
 		// all nodes that are missing a given key

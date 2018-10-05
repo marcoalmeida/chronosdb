@@ -324,39 +324,39 @@ func (idb *InfluxDB) Query(uri string, form url.Values) (int, []byte) {
 	)
 }
 
-// merge an array of responses into a single JSON object
-func (idb *InfluxDB) MergeResponses(responses [][]byte, pretty bool) ([]byte, error) {
-	merged := httpResponse{}
-
-	for _, response := range responses {
-		r := httpResponse{}
-		err := json.Unmarshal(response, &r)
-		if err != nil {
-			idb.logger.Debug("Failed to unmarshal response", zap.ByteString("response", response))
-			return nil, err
-		}
-
-		if len(r.Results) >= 1 {
-			merged.Results = append(merged.Results, r.Results...)
-		} else {
-			idb.logger.Debug("Got empty response", zap.ByteString("response", response))
-		}
-	}
-
-	var result []byte
-	var err error
-	if pretty {
-		result, err = json.MarshalIndent(merged, "", "  ")
-	} else {
-		result, err = json.Marshal(merged)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
+//// merge an array of responses into a single JSON object
+//func (idb *InfluxDB) MergeResponses(responses [][]byte, pretty bool) ([]byte, error) {
+//	merged := httpResponse{}
+//
+//	for _, response := range responses {
+//		r := httpResponse{}
+//		err := json.Unmarshal(response, &r)
+//		if err != nil {
+//			idb.logger.Debug("Failed to unmarshal response", zap.ByteString("response", response))
+//			return nil, err
+//		}
+//
+//		if len(r.Results) >= 1 {
+//			merged.Results = append(merged.Results, r.Results...)
+//		} else {
+//			idb.logger.Debug("Got empty response", zap.ByteString("response", response))
+//		}
+//	}
+//
+//	var result []byte
+//	var err error
+//	if pretty {
+//		result, err = json.MarshalIndent(merged, "", "  ")
+//	} else {
+//		result, err = json.Marshal(merged)
+//	}
+//
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	return result, nil
+//}
 
 // TODO: replace this with a call to idb.Query that sets the Accept header to application/csv; then the caller
 // TODO: can compose the result with resultToLineProtocol
@@ -494,19 +494,26 @@ func DBNameFromURL(form url.Values) string {
 	return form.Get("db")
 }
 
-func QueriesFromURL(form url.Values) []string {
-	q := form.Get("q")
-	if q == "" {
-		return []string{}
-	}
+//func QueriesFromURL(form url.Values) []string {
+//	q := form.Get("q")
+//	if q == "" {
+//		return []string{}
+//	}
+//
+//	return strings.Split(q, ";")
+//}
 
-	return strings.Split(q, ";")
+// QueryFromURL returns the `SELECT` statement from the `q` parameter. As of now, ChronosDB expects only one
+// `SELECT` statement per call to `/query`.
+func QueryFromURL(form url.Values) string {
+	return form.Get("q")
 }
 
 // the measurement(s) must be double quoted; there will always be whitespace before the opening quote and after the
 // closing one; will fail if the name of the measurement is defined using a regular expression
 var reMatchFROM = regexp.MustCompile(`(?i)^.*\s+FROM\s+(".*?")(\s+.*)?$`)
 
+// TODO: use parsing functions from InfluxDB
 func MeasurementNameFromQuery(query string) string {
 	// InfluxDB imposes no restrictions on measurement's names which makes parsing queries much more complicated
 	// trying to keep things simple, especially for the MVP, we require measurements to be double quoted and

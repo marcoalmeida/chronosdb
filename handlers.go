@@ -51,7 +51,7 @@ func serve(app *appCfg) {
 func statusHandler(app *appCfg) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := app.dynamo.NodeStatus()
-		sendResponseJSON(w, status, http.StatusOK)
+		respondJSON(w, status, http.StatusOK)
 	}
 }
 
@@ -61,9 +61,9 @@ func ringHandler(app *appCfg) http.HandlerFunc {
 		switch r.Method {
 		case "GET":
 			nodes := app.dynamo.GetRing()
-			sendResponseJSON(w, nodes, http.StatusOK)
+			respondJSON(w, nodes, http.StatusOK)
 		default:
-			sendResponseJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
+			respondJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
 		}
 	}
 }
@@ -72,7 +72,7 @@ func dbHandler(app *appCfg) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := r.ParseForm()
 		if err != nil {
-			sendResponseJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
+			respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
 			return
 		}
 
@@ -83,9 +83,9 @@ func dbHandler(app *appCfg) http.HandlerFunc {
 		case "GET":
 			dbs, err := app.dynamo.GetDBs()
 			if err != nil {
-				sendResponseJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
+				respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
 			} else {
-				sendResponseJSON(w, dbs, http.StatusOK)
+				respondJSON(w, dbs, http.StatusOK)
 			}
 		case "PUT", "DELETE":
 			var node string
@@ -101,13 +101,13 @@ func dbHandler(app *appCfg) http.HandlerFunc {
 					Message: err.Error(),
 					Node:    node,
 				}
-				sendResponseJSON(w, response, http.StatusInternalServerError)
+				respondJSON(w, response, http.StatusInternalServerError)
 			} else {
-				sendResponseJSON(w, responsetypes.OK{Result: db}, http.StatusOK)
+				respondJSON(w, responsetypes.OK{Result: db}, http.StatusOK)
 			}
 
 		default:
-			sendResponseJSON(w, responsetypes.Error{Message: "unknown method"}, http.StatusBadRequest)
+			respondJSON(w, responsetypes.Error{Message: "unknown method"}, http.StatusBadRequest)
 		}
 	}
 }
@@ -117,7 +117,7 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 		k := r.URL.Path[len("/key/"):]
 		if k == "" {
 			response := responsetypes.Error{Message: "key not found"}
-			sendResponseJSON(w, response, http.StatusBadRequest)
+			respondJSON(w, response, http.StatusBadRequest)
 			return
 		}
 
@@ -126,25 +126,25 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 		case "GET":
 			keyExists, err := app.dynamo.DoesKeyExist(key)
 			if err != nil {
-				sendResponseJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
+				respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
 				return
 			}
 
 			if keyExists {
-				sendResponseJSON(w, responsetypes.OK{Result: "ok"}, http.StatusOK)
+				respondJSON(w, responsetypes.OK{Result: "ok"}, http.StatusOK)
 			} else {
-				sendResponseJSON(w, responsetypes.Error{Message: "key not found"}, http.StatusNotFound)
+				respondJSON(w, responsetypes.Error{Message: "key not found"}, http.StatusNotFound)
 			}
 		case "PUT":
 			// mark key as successfully transferred
 			err := app.dynamo.KeyRecvCompleted(key)
 			if err != nil {
-				sendResponseJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
+				respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
 			} else {
-				sendResponseJSON(w, responsetypes.OK{Result: "ok"}, http.StatusOK)
+				respondJSON(w, responsetypes.OK{Result: "ok"}, http.StatusOK)
 			}
 		default:
-			sendResponseJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
+			respondJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
 		}
 	}
 }
@@ -155,7 +155,7 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 
 // the /write and /query endpoints should be 100% compatible with InfluxDB
 //
-// extends InfluxDB's /write API by accepting an extra parameter, forward=false, to
+// ChronosDB extends InfluxDB's /write API by accepting an extra parameter, forward=false, to
 // indicate the node
 // should accept the payload instead of acting like a coordinator
 //
@@ -171,7 +171,7 @@ func writeHandler(app *appCfg) http.HandlerFunc {
 		// errors that must be dealt with before forwarding a request
 
 		if r.Method != "POST" {
-			sendResponseJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
+			respondJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
 			return
 		}
 
@@ -179,10 +179,10 @@ func writeHandler(app *appCfg) http.HandlerFunc {
 		payload, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			app.logger.Error("Failed to read request body", zap.Error(err))
-			sendResponseJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusBadRequest)
+			respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusBadRequest)
 		} else {
 			status, response := app.dynamo.Write(r.URL.RequestURI(), r.URL.Query(), payload)
-			sendResponsePassThrough(w, response, status)
+			respondPassThrough(w, response, status)
 		}
 	}
 }
@@ -197,18 +197,18 @@ func queryHandler(app *appCfg) http.HandlerFunc {
 		// data
 
 		if r.Method != "POST" && r.Method != "GET" {
-			sendResponseJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
+			respondJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
 			return
 		}
 
 		err := r.ParseForm()
 		if err != nil {
-			sendResponseJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusBadRequest)
+			respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusBadRequest)
 			return
 		}
 
 		status, response := app.dynamo.Query(r.URL.RequestURI(), r.Form)
-		sendResponsePassThrough(w, response, status)
+		respondPassThrough(w, response, status)
 	}
 }
 
@@ -235,12 +235,12 @@ func prometheusMetricsV1(app *appCfg) http.HandlerFunc {
 // Helper methods for sending responses
 //
 
-func sendResponsePassThrough(w http.ResponseWriter, data []byte, status int) {
+func respondPassThrough(w http.ResponseWriter, data []byte, status int) {
 	w.WriteHeader(status)
 	io.WriteString(w, string(data))
 }
 
-func sendResponseJSON(w http.ResponseWriter, data interface{}, status int) error {
+func respondJSON(w http.ResponseWriter, data interface{}, status int) error {
 	w.WriteHeader(status)
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
