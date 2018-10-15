@@ -21,32 +21,9 @@ type appCfg struct {
 	dynamo *dynamo.Dynamo
 }
 
+// TODO: is rand still used anywhere?
 func init() {
 	rand.Seed(time.Now().UnixNano())
-}
-
-func main() {
-	// logging
-	logger, atom := setupLogging()
-	// flush the buffer before exiting
-	defer logger.Sync()
-
-	// parse the configuration file
-	cfg := mustParseConfig(logger, atom)
-
-	// make sure InfluxDB is up and running -- there's no point on proceeding otherwise
-	waitForInfluxDB(&cfg.InfluxDB, logger)
-
-	// application instance
-	app := &appCfg{
-		cfg:    cfg,
-		logger: logger,
-		dynamo: dynamo.New(cfg.Port, &cfg.Dynamo, &cfg.InfluxDB, logger),
-	}
-	// start Dynamo-related tasks (these run in the background and do not block)
-	app.dynamo.Start()
-	// listen and serve ChronosDB (most of the Dynamo-related tasks above )
-	serve(app)
 }
 
 func setupLogging() (*zap.Logger, *zap.AtomicLevel) {
@@ -63,7 +40,7 @@ func setupLogging() (*zap.Logger, *zap.AtomicLevel) {
 		&atom
 }
 
-func mustParseConfig(logger *zap.Logger, atom *zap.AtomicLevel) *config.MainCfg {
+func mustParseConfig(logger *zap.Logger) *config.MainCfg {
 	var cfgFile = flag.String("cfg", "", "path to the configuration file")
 	flag.Parse()
 
@@ -73,19 +50,43 @@ func mustParseConfig(logger *zap.Logger, atom *zap.AtomicLevel) *config.MainCfg 
 		logger.Fatal("Configuration error:", zap.Error(err))
 	}
 
-	// set the correct log level
-	if cfg.EnableDebug {
-		atom.SetLevel(zap.DebugLevel)
-	}
-	logger.Debug("Application configuration", zap.String("options", fmt.Sprintf("%+v", cfg)))
-
 	return cfg
 }
 
+// block until InfluxDB is up and running
 func waitForInfluxDB(cfg *influxdb.Cfg, logger *zap.Logger) {
 	idb := influxdb.New(cfg, logger)
 	for !idb.IsAlive() {
 		logger.Debug("Waiting for InfluxDB to report being alive and healthy...")
 		time.Sleep(time.Duration(3) * time.Second)
 	}
+}
+
+func main() {
+	// logging
+	logger, atom := setupLogging()
+	// flush the buffer before exiting
+	defer logger.Sync()
+
+	// parse the configuration file
+	cfg := mustParseConfig(logger)
+	// we can now set the requested log level
+	if cfg.EnableDebug {
+		atom.SetLevel(zap.DebugLevel)
+	}
+	logger.Debug("Application configuration", zap.String("options", fmt.Sprintf("%+v", cfg)))
+
+	// make sure InfluxDB is up and running -- there's no point on proceeding otherwise
+	waitForInfluxDB(&cfg.InfluxDB, logger)
+
+	// application instance
+	app := &appCfg{
+		cfg:    cfg,
+		logger: logger,
+		dynamo: dynamo.New(cfg.Port, &cfg.Dynamo, &cfg.InfluxDB, logger),
+	}
+	// start Dynamo-related tasks (these run in the background and do not block)
+	app.dynamo.Start()
+	// listen and serve ChronosDB (most of the Dynamo-related tasks above )
+	serve(app)
 }

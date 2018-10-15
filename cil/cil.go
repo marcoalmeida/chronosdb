@@ -1,4 +1,4 @@
-package hint
+package chunk
 
 import (
 	"bytes"
@@ -14,18 +14,26 @@ import (
 	"go.uber.org/zap"
 )
 
-// directory structure and modus operandi for hinted hand off
+// directory structure and modus operandi for replaying chunks
 //
-// this package takes care of writing hints to the local filesystem
-// in order to make sure the background tasks that replay hints will not see a partially written payload, the
+// Chunk replay is how ChronosDB deals with temporary node failures.
+// When a given replica A is down the payload intended to A is stored locally on the coordinator node. When the
+// failed node returns to the cluster, the
+// updates received by the neighboring nodes are handed off to it.
+
+// this package manages local copies of
+//
+// chunks of metrics that failed to be forwarded to a replica by keeping a local copy
+//
+// in order to make sure the background tasks that replay chunks will not see a partially written payload, the
 // following method is implemented:
 // - one directory per node, each containing two sub-directories: tmp and new
-// - each hint is written to $chronosdb/hints/<node>/tmp/<unique>, where <unique> is a unique name
-// - once successfully written, the file is moved to $chronosdb/hints/<node>/new/<unique> using rename (atomic [1])
+// - each chunk is written to $chronosdb/chunks/<node>/tmp/<unique>, where <unique> is a unique name
+// - once successfully written, the file is moved to $chronosdb/chunks/<node>/new/<unique> using rename (atomic [1])
 //
-// there can be multiple threads reading hints at the same time
+// there can be multiple threads reading chunks at the same time
 
-// the format of a hint file: simple text file with metrics defined as per the line protocol plus the original URI
+// the format of a chunk file: simple text file with metrics defined as per the line protocol plus the original URI
 // (which we need to create the request):
 //
 // node
@@ -39,7 +47,7 @@ import (
 // [1] - http://pubs.opengroup.org/onlinepubs/9699919799/functions/rename.html
 
 const (
-	hintsDirectoryName      = "hints"
+	chunksDirectoryName      = "chunks"
 	tmpDirectoryName        = "tmp"
 	newDirectoryName        = "new"
 	processingDirectoryName = "processing"
@@ -67,11 +75,11 @@ func New(dataDir string, logger *zap.Logger) *Cfg {
 }
 
 func (h *Cfg) getPath(node string, dir string) string {
-	return filepath.Join(h.hintsRoot(), node, dir)
+	return filepath.Join(h.chunksRoot(), node, dir)
 }
 
-func (h *Cfg) hintsRoot() string {
-	return fmt.Sprintf("%s/%s", h.dataDir, hintsDirectoryName)
+func (h *Cfg) chunksRoot() string {
+	return fmt.Sprintf("%s/%s", h.dataDir, chunksDirectoryName)
 }
 
 func (h *Cfg) tmpDir(node string) string {
@@ -86,10 +94,10 @@ func (h *Cfg) processingDir(node string) string {
 	return h.getPath(node, processingDirectoryName)
 }
 
-// Store saves a hint in the local file system. A background process will hand it off once the target node is available.
-func (h *Cfg) Store(hint *Hint) error {
-	tmpDir := h.tmpDir(hint.Node)
-	newDir := h.newDir(hint.Node)
+// Store saves a chunk in the local file system. A background process will hand it off once the target node is available.
+func (h *Cfg) Store(chunk *Hint) error {
+	tmpDir := h.tmpDir(chunk.Node)
+	newDir := h.newDir(chunk.Node)
 
 	if err := ensureDirectory(tmpDir); err != nil {
 		return err
@@ -110,14 +118,14 @@ func (h *Cfg) Store(hint *Hint) error {
 	zw := gzip.NewWriter(&buf)
 	// headers
 	zw.ModTime = time.Now()
-	// hint data
-	zw.Write([]byte(hint.Node))
+	// chunk data
+	zw.Write([]byte(chunk.Node))
 	zw.Write([]byte("\n"))
-	zw.Write([]byte(hint.URI))
+	zw.Write([]byte(chunk.URI))
 	zw.Write([]byte("\n"))
-	zw.Write([]byte(hint.Key.String()))
+	zw.Write([]byte(chunk.Key.String()))
 	zw.Write([]byte("\n"))
-	zw.Write(hint.Payload)
+	zw.Write(chunk.Payload)
 	// make sure to close the writer to flush the buffer before writing the file
 	zw.Close()
 
@@ -139,24 +147,24 @@ func (h *Cfg) Store(hint *Hint) error {
 	return nil
 }
 
-// TODO: sort by time stamp and deliver older hints first
-// Fetch finds and returns a (any) saved hint that should be handed off
+// TODO: sort by time stamp and deliver older chunks first
+// Fetch finds and returns a (any) saved chunk that should be handed off
 func (h *Cfg) Fetch() (*Hint, error) {
 	// list nodes
-	nodes, err := ioutil.ReadDir(h.hintsRoot())
+	nodes, err := ioutil.ReadDir(h.chunksRoot())
 	if err != nil {
 		return nil, err
 	}
 
 	for _, n := range nodes {
 		path := h.newDir(n.Name())
-		hints, err := ioutil.ReadDir(path)
+		chunks, err := ioutil.ReadDir(path)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(hints) > 0 {
-			f := hints[0]
+		if len(chunks) > 0 {
+			f := chunks[0]
 			// move to "processing"
 			processingDir := h.processingDir(n.Name())
 			if err := ensureDirectory(processingDir); err != nil {
@@ -202,23 +210,23 @@ func (h *Cfg) Fetch() (*Hint, error) {
 		}
 	}
 
-	// if we made it this far, there are no hints to replay
+	// if we made it this far, there are no chunks to replay
 	return nil, nil
 }
 
-// Remove deletes a given hint from the local file system
+// Remove deletes a given chunk from the local file system
 func (h *Cfg) Remove(contents *Hint) error {
-	h.logger.Debug("Removing already handed off hint", zap.String("file", contents.filePath))
+	h.logger.Debug("Removing already handed off chunk", zap.String("file", contents.filePath))
 	return os.Remove(contents.filePath)
 }
 
-// RemoveStale removes hints intended to nodes that are no longer active
+// RemoveStale removes chunks intended to nodes that are no longer active
 func (h *Cfg) RemoveStale(activeNodes []string) {
-	h.logger.Info("Starting the removal of stale hints...")
+	h.logger.Info("Starting the removal of stale chunks...")
 
-	targets, err := ioutil.ReadDir(h.hintsRoot())
+	targets, err := ioutil.ReadDir(h.chunksRoot())
 	if err != nil {
-		h.logger.Error("Failed to list the root directory for hints", zap.Error(err))
+		h.logger.Error("Failed to list the root directory for chunks", zap.Error(err))
 		return
 	}
 
@@ -231,16 +239,16 @@ func (h *Cfg) RemoveStale(activeNodes []string) {
 			}
 		}
 		if !exists {
-			path := filepath.Join(h.hintsRoot(), t.Name())
+			path := filepath.Join(h.chunksRoot(), t.Name())
 			h.logger.Info(
-				"Removing hint",
+				"Removing chunk",
 				zap.String("node", t.Name()),
 				zap.String("path", path),
 			)
 			// actually delete the file
 			if err := os.Remove(path); err != nil {
 				h.logger.Error(
-					"Failed to remove hint",
+					"Failed to remove chunk",
 					zap.String("node", t.Name()),
 					zap.String("path", path),
 					zap.Error(err),
@@ -249,17 +257,17 @@ func (h *Cfg) RemoveStale(activeNodes []string) {
 		}
 	}
 
-	h.logger.Info("Finished the removal of stale hints...")
+	h.logger.Info("Finished the removal of stale chunks...")
 }
 
-// RestoreDangling moves dangling files from the `processing` state back to `new` for re-processing. Dangling hints
+// RestoreDangling moves dangling files from the `processing` state back to `new` for re-processing. Dangling chunks
 // will exist if the hand off process was interrupted
 func (h *Cfg) RestoreDangling() {
-	h.logger.Info("Starting recovery of dangling hints...")
+	h.logger.Info("Starting recovery of dangling chunks...")
 
-	nodes, err := ioutil.ReadDir(h.hintsRoot())
+	nodes, err := ioutil.ReadDir(h.chunksRoot())
 	if err != nil {
-		h.logger.Error("Failed to list hints root directory", zap.Error(err))
+		h.logger.Error("Failed to list chunks root directory", zap.Error(err))
 		return
 	}
 
@@ -269,41 +277,41 @@ func (h *Cfg) RestoreDangling() {
 			continue
 		}
 
-		hints, err := ioutil.ReadDir(h.processingDir(node.Name()))
+		chunks, err := ioutil.ReadDir(h.processingDir(node.Name()))
 		if err != nil {
-			h.logger.Error("Failed to list hints", zap.Error(err))
+			h.logger.Error("Failed to list chunks", zap.Error(err))
 			return
 		}
 
-		for _, hint := range hints {
-			src := h.processingDir(node.Name()) + "/" + hint.Name()
-			dst := h.newDir(node.Name()) + "/" + hint.Name()
+		for _, chunk := range chunks {
+			src := h.processingDir(node.Name()) + "/" + chunk.Name()
+			dst := h.newDir(node.Name()) + "/" + chunk.Name()
 			h.logger.Info(
-				"Moving dangling hint",
+				"Moving dangling chunk",
 				zap.String("src", src),
 				zap.String("dst", dst))
 			err := os.Rename(src, dst)
 			if err != nil {
-				h.logger.Error("Failed to move hint", zap.Error(err))
+				h.logger.Error("Failed to move chunk", zap.Error(err))
 			}
 		}
 	}
 
-	h.logger.Info("Finished recovery of dangling hints...")
+	h.logger.Info("Finished recovery of dangling chunks...")
 }
 
-// SaveForRerun moves a hint from the `processing` state back to `new`
-func (h *Cfg) SaveForRerun(hint *Hint) {
-	src := hint.filePath
+// SaveForRerun moves a chunk from the `processing` state back to `new`
+func (h *Cfg) SaveForRerun(chunk *Hint) {
+	src := chunk.filePath
 	splitPath := strings.Split(src, "/")
-	hintName := splitPath[len(splitPath)-1]
+	chunkName := splitPath[len(splitPath)-1]
 	// the name is generated using nanoseconds from Epoch and this one in particular will be in the past so it's
 	// impossible to have a collision and this operation is safe
-	dst := h.newDir(hint.Node) + "/" + hintName
+	dst := h.newDir(chunk.Node) + "/" + chunkName
 
 	err := os.Rename(src, dst)
 	if err != nil {
-		h.logger.Error("Failed to reset hint", zap.Error(err))
+		h.logger.Error("Failed to reset chunk", zap.Error(err))
 	}
 }
 
