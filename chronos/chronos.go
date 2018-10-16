@@ -2,12 +2,12 @@ package chronos
 
 import (
 	"errors"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/marcoalmeida/chronosdb/config"
 	"github.com/marcoalmeida/chronosdb/coretypes"
 	"github.com/marcoalmeida/chronosdb/gossip"
 	"github.com/marcoalmeida/chronosdb/ilog"
@@ -18,45 +18,14 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	DefaultDataDirectory        = "/var/lib/chronosdb"
-	DefaultNumberReplicas       = 3
-	DefaultWriteQuorum          = 2
-	DefaultConnectTimeout       = 500
-	DefaultClientTimeout        = 3000
-	DefaultMaxRetires           = 3
-	DefaultHandoffInterval      = 15
-	DefaultKeyTransferInterval  = 30
-	DefaultKeyTransferChunkSize = 10000
-	DefaultKeyRecvTimeout       = 60
-)
-
-type Cfg struct {
-	DataDirectory        string             `toml:"data_dir"`
-	Nodes                map[string]float64 `toml:"nodes"`
-	NodeID               string             `toml:"node_id"`
-	NumberOfReplicas     int                `toml:"n_replicas"`
-	WriteQuorum          int                `toml:"write_quorum"`
-	ReadQuorum           int                `toml:"read_quorum"`
-	ReplayInterval       int                `toml:"handoff_interval"`
-	KeyTransferInterval  int                `toml:"key_transfer_interval"`
-	KeyTransferBatchSize int                `toml:"key_transfer_batch_size"`
-	KeyRecvTimeout       int                `toml:"key_recv_timeout"`
-	RecoveryGracePeriod  int                `toml:"recovery_grace_period"`
-	ConnectTimeout       int                `toml:"connect_timeout"`
-	ClientTimeout        int                `toml:"client_timeout"`
-	MaxRetries           int                `toml:"max_retries"`
-}
-
 type Chronos struct {
-	cfg           *Cfg
-	chronosDBPort int64
-	logger        *zap.Logger
-	cluster       hrw.Nodes
-	gossip        *gossip.Gossip
-	intentLog     *ilog.Cfg
-	httpClient    *http.Client
-	influxDB      *influxdb.InfluxDB
+	cfg        *config.ChronosCfg
+	logger     *zap.Logger
+	cluster    hrw.Nodes
+	gossip     *gossip.Gossip
+	intentLog  *ilog.Cfg
+	httpClient *http.Client
+	influxDB   *influxdb.InfluxDB
 	// node is still initializing
 	isInitializing bool
 	// receiving data from a hinted handoff or key transfer
@@ -68,10 +37,10 @@ type Chronos struct {
 	//keyRecvLock      sync.RWMutex
 }
 
-func New(chronosDBPort int64, chronosCfg *Cfg, influxDBCFG *influxdb.Cfg, logger *zap.Logger) *Chronos {
+func New(cfg *config.ChronosCfg, logger *zap.Logger) *Chronos {
 	// add all nodes listed in the configuration file to the cluster
 	cluster := hrw.New(nil)
-	for node, weight := range chronosCfg.Nodes {
+	for node, weight := range cfg.Nodes {
 		logger.Debug("Adding node to the cluster", zap.String("node", node), zap.Float64("weight", weight))
 		err := cluster.AddNode(hrw.Node{Name: node, Weight: weight})
 		if err != nil {
@@ -80,14 +49,13 @@ func New(chronosDBPort int64, chronosCfg *Cfg, influxDBCFG *influxdb.Cfg, logger
 	}
 
 	// it's safe to share one single HTTP client instance
-	httpClient := shared.NewHTTPClient(chronosCfg.ConnectTimeout, chronosCfg.ClientTimeout)
+	httpClient := shared.NewHTTPClient(cfg.ConnectTimeout, cfg.ClientTimeout)
 
 	return &Chronos{
-		cfg:           chronosCfg,
-		chronosDBPort: chronosDBPort,
-		cluster:       cluster,
-		gossip:        gossip.New(chronosDBPort, httpClient, chronosCfg.MaxRetries, logger),
-		intentLog:     ilog.New(chronosCfg.DataDirectory, logger),
+		cfg:       cfg,
+		cluster:   cluster,
+		gossip:    gossip.New(cfg.Port, httpClient, cfg.MaxRetries, logger),
+		intentLog: ilog.New(cfg.DataDirectory, logger),
 		// always start in recovery mode to make sure we give it enough time for intentLog to start replaying or
 		// key transfer operations to begin before accepting queries
 		// the recovery grace period should be (2x?) higher than the intentLog handoff interval to make sure we don't exit
@@ -103,7 +71,7 @@ func New(chronosDBPort int64, chronosCfg *Cfg, influxDBCFG *influxdb.Cfg, logger
 		// isInitializing: true,
 		logger:     logger,
 		httpClient: httpClient,
-		influxDB:   influxdb.New(influxDBCFG, logger),
+		influxDB:   influxdb.New(&cfg.InfluxDB, logger),
 	}
 }
 
@@ -332,11 +300,12 @@ func (d *Chronos) Write(uri string, form url.Values, payload []byte) (int, []byt
 		//
 		// problem: transfer begins, receiving node dies midway through, sender node fails while generating intentLog; next
 		// time this node is queried it'll say the key exists even though it's incomplete
-		k := d.getKeyFromURL(form)
-		d.beginKeyRecv(k)
-		d.keyRecvLock.Lock()
-		d.keyRecvTimestamp[k] = time.Now()
-		d.keyRecvLock.Unlock()
+		// TODO
+		//k := d.getKeyFromURL(form)
+		//d.beginKeyRecv(k)
+		//d.keyRecvLock.Lock()
+		//d.keyRecvTimestamp[k] = time.Now()
+		//d.keyRecvLock.Unlock()
 	}
 
 	return d.fsmStartWrite(uri, form, payload)
@@ -348,51 +317,56 @@ func (d *Chronos) Query(uri string, form url.Values) (int, []byte) {
 
 // remove the marker that indicates a key transfer is in progress
 func (d *Chronos) KeyRecvCompleted(key *coretypes.Key) error {
-	return d.endKeyRecv(key)
+	// TODO
+	// return d.endKeyRecv(key)
+	return nil
 }
 
 // TODO: cache results (when safe)
 func (d *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
-	// if a transfer is already in progress return true so that another one does not start
-	if d.keyRecvInProgress(key) {
-		d.logger.Debug("Recv in progress", zap.String("key", key.String()))
-		return true, nil
-	}
+	// TODO
+	return true, nil
 
-	// if a transfer is not in progress but was started at some point and never completed, return false right now so
-	// that it can restart (otherwise the check below would just return true and we have only part of the data)
-	if d.keyRecvPending(key) {
-		d.logger.Debug("Recv pending", zap.String("key", key.String()))
-		return false, nil
-	}
-
-	dbs, err := d.influxDB.ShowDBs()
-	if err != nil {
-		d.logger.Error(
-			"Failed to list DBs",
-			zap.Error(err),
-		)
-		return false, errors.New("failed to list databases")
-	}
-
-	for _, db := range dbs {
-		measurements, err := d.influxDB.ShowMeasurements(db)
-		if err != nil {
-			d.logger.Error(
-				"Failed to list measurements",
-				zap.Error(err),
-			)
-			return false, errors.New("failed to list measurements")
-		}
-
-		for _, m := range measurements {
-			if db == key.DB && m == key.Measurement {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
+	//// if a transfer is already in progress return true so that another one does not start
+	//if d.keyRecvInProgress(key) {
+	//	d.logger.Debug("Recv in progress", zap.String("key", key.String()))
+	//	return true, nil
+	//}
+	//
+	//// if a transfer is not in progress but was started at some point and never completed, return false right now so
+	//// that it can restart (otherwise the check below would just return true and we have only part of the data)
+	//if d.keyRecvPending(key) {
+	//	d.logger.Debug("Recv pending", zap.String("key", key.String()))
+	//	return false, nil
+	//}
+	//
+	//dbs, err := d.influxDB.ShowDBs()
+	//if err != nil {
+	//	d.logger.Error(
+	//		"Failed to list DBs",
+	//		zap.Error(err),
+	//	)
+	//	return false, errors.New("failed to list databases")
+	//}
+	//
+	//for _, db := range dbs {
+	//	measurements, err := d.influxDB.ShowMeasurements(db)
+	//	if err != nil {
+	//		d.logger.Error(
+	//			"Failed to list measurements",
+	//			zap.Error(err),
+	//		)
+	//		return false, errors.New("failed to list measurements")
+	//	}
+	//
+	//	for _, m := range measurements {
+	//		if db == key.DB && m == key.Measurement {
+	//			return true, nil
+	//		}
+	//	}
+	//}
+	//
+	//return false, nil
 }
 
 // return true iff in recovery
@@ -460,37 +434,37 @@ func (d *Chronos) checkAndExitRecoveryMode() {
 //
 // keeping it running continuously ensures missing keys will always be transferred (given enough time) even if a node
 // initiates and then stops/fails midway through it
-func (d *Chronos) transferKeys() {
-	// block indefinitely while the node is initializing
-	for d.isInitializing {
-		d.logger.Debug("Delaying key transfer while initializing")
-		time.Sleep(time.Second * 3)
-	}
-
-	d.logger.Info("Starting background task for transferring keys")
-	for {
-		// don't transfer if receiving
-		for d.keyRecvPending(nil) || d.isRecovering() {
-			d.logger.Debug("Delaying key transfer while isRecovering and/or receiving keys")
-			time.Sleep(time.Second * 3)
-		}
-		// all nodes that are missing a given key
-		targets, err := d.fsmTransferCollectTargets()
-		if err != nil {
-			// failing here is weird but probably not a strong enough reason to terminate
-			d.logger.Error("Failed to collect targets for key transfer", zap.Error(err))
-		} else {
-			// the order by which target nodes are processed will be random (it's a map), which is very convenient to
-			// minimize the probability of having more than one node trying to transfer data to the same target
-			for node, keys := range targets {
-				d.fsmTransferAllKeys(node, keys)
-			}
-		}
-
-		// wait for a random period of time to avoid having multiple nodes trying to initiate transfer requests at
-		// the same time
-		r := rand.Intn(d.cfg.KeyTransferInterval)
-		d.logger.Debug("Sleeping between key transfer attempts", zap.Int("time", r))
-		time.Sleep(time.Duration(r) * time.Second)
-	}
-}
+//func (d *Chronos) transferKeys() {
+//	// block indefinitely while the node is initializing
+//	for d.isInitializing {
+//		d.logger.Debug("Delaying key transfer while initializing")
+//		time.Sleep(time.Second * 3)
+//	}
+//
+//	d.logger.Info("Starting background task for transferring keys")
+//	for {
+//		// don't transfer if receiving
+//		for d.keyRecvPending(nil) || d.isRecovering() {
+//			d.logger.Debug("Delaying key transfer while isRecovering and/or receiving keys")
+//			time.Sleep(time.Second * 3)
+//		}
+//		// all nodes that are missing a given key
+//		targets, err := d.fsmTransferCollectTargets()
+//		if err != nil {
+//			// failing here is weird but probably not a strong enough reason to terminate
+//			d.logger.Error("Failed to collect targets for key transfer", zap.Error(err))
+//		} else {
+//			// the order by which target nodes are processed will be random (it's a map), which is very convenient to
+//			// minimize the probability of having more than one node trying to transfer data to the same target
+//			for node, keys := range targets {
+//				d.fsmTransferAllKeys(node, keys)
+//			}
+//		}
+//
+//		// wait for a random period of time to avoid having multiple nodes trying to initiate transfer requests at
+//		// the same time
+//		r := rand.Intn(d.cfg.KeyTransferInterval)
+//		d.logger.Debug("Sleeping between key transfer attempts", zap.Int("time", r))
+//		time.Sleep(time.Duration(r) * time.Second)
+//	}
+//}

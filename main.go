@@ -15,8 +15,9 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-type appCfg struct {
-	cfg     *config.MainCfg
+type app struct {
+	listen  string
+	port    int64
 	logger  *zap.Logger
 	chronos *chronos.Chronos
 }
@@ -40,7 +41,7 @@ func setupLogging() (*zap.Logger, *zap.AtomicLevel) {
 		&atom
 }
 
-func mustParseConfig(logger *zap.Logger) *config.MainCfg {
+func mustParseConfig(logger *zap.Logger) *config.ChronosCfg {
 	var cfgFile = flag.String("cfg", "", "path to the configuration file")
 	flag.Parse()
 
@@ -80,10 +81,11 @@ func main() {
 	waitForInfluxDB(&cfg.InfluxDB, logger)
 
 	// application instance
-	app := &appCfg{
-		cfg:     cfg,
+	app := &app{
+		listen:  cfg.ListenIP,
+		port:    cfg.Port,
 		logger:  logger,
-		chronos: chronos.New(cfg.Port, &cfg.Chronos, &cfg.InfluxDB, logger),
+		chronos: chronos.New(cfg, logger),
 	}
 	// start Chronos-related tasks (these run in the background and do not block)
 	app.chronos.Start()

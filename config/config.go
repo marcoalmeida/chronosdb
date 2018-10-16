@@ -6,30 +6,52 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
-	"github.com/marcoalmeida/chronosdb/chronos"
 	"github.com/marcoalmeida/chronosdb/influxdb"
 	"go.uber.org/zap"
 )
 
 const (
-	defaultListenIP = "0.0.0.0"
-	defaultPort     = 8989
-	defaultDebug    = false
+	defaultListenIP             = "0.0.0.0"
+	defaultPort                 = 8989
+	defaultDebug                = false
+	defaultDataDirectory        = "/var/lib/chronosdb"
+	defaultNumberReplicas       = 3
+	defaultWriteQuorum          = 2
+	defaultConnectTimeout       = 500
+	defaultClientTimeout        = 3000
+	defaultMaxRetires           = 3
+	defaultHandoffInterval      = 15
+	defaultKeyTransferInterval  = 30
+	defaultKeyTransferChunkSize = 10000
+	defaultKeyRecvTimeout       = 60
 )
 
 // possible locations for the configuration file, in order ot preference
 var defaultCfgPaths []string = []string{"/etc/chronosdb.toml", "chronosdb.toml"}
 
-type MainCfg struct {
-	ListenIP    string `toml:"listen_ip"`
-	Port        int64
-	EnableDebug bool `toml:"enable_debug"`
-	Chronos     chronos.Cfg
-	InfluxDB    influxdb.Cfg
+type ChronosCfg struct {
+	ListenIP             string `toml:"listen_ip"`
+	Port                 int64
+	EnableDebug          bool               `toml:"enable_debug"`
+	DataDirectory        string             `toml:"data_dir"`
+	Nodes                map[string]float64 `toml:"nodes"`
+	NodeID               string             `toml:"node_id"`
+	NumberOfReplicas     int                `toml:"n_replicas"`
+	WriteQuorum          int                `toml:"write_quorum"`
+	ReadQuorum           int                `toml:"read_quorum"`
+	ReplayInterval       int                `toml:"handoff_interval"`
+	KeyTransferInterval  int                `toml:"key_transfer_interval"`
+	KeyTransferBatchSize int                `toml:"key_transfer_batch_size"`
+	KeyRecvTimeout       int                `toml:"key_recv_timeout"`
+	RecoveryGracePeriod  int                `toml:"recovery_grace_period"`
+	ConnectTimeout       int                `toml:"connect_timeout"`
+	ClientTimeout        int                `toml:"client_timeout"`
+	MaxRetries           int                `toml:"max_retries"`
+	InfluxDB             influxdb.Cfg
 }
 
-func New(path *string, logger *zap.Logger) (*MainCfg, error) {
-	var cfg MainCfg
+func New(path *string, logger *zap.Logger) (*ChronosCfg, error) {
+	var cfg ChronosCfg
 
 	setDefaults(&cfg)
 
@@ -63,22 +85,21 @@ func New(path *string, logger *zap.Logger) (*MainCfg, error) {
 	return nil, errors.New("no valid configuration files found")
 }
 
-func setDefaults(cfg *MainCfg) {
+func setDefaults(cfg *ChronosCfg) {
 	// main
 	cfg.ListenIP = defaultListenIP
 	cfg.Port = defaultPort
 	cfg.EnableDebug = defaultDebug
-	// dynamo
-	cfg.Chronos.DataDirectory = chronos.DefaultDataDirectory
-	cfg.Chronos.NumberOfReplicas = chronos.DefaultNumberReplicas
-	cfg.Chronos.WriteQuorum = chronos.DefaultWriteQuorum
-	cfg.Chronos.ReplayInterval = chronos.DefaultHandoffInterval
-	cfg.Chronos.KeyTransferInterval = chronos.DefaultKeyTransferInterval
-	cfg.Chronos.KeyTransferBatchSize = chronos.DefaultKeyTransferChunkSize
-	cfg.Chronos.KeyRecvTimeout = chronos.DefaultKeyRecvTimeout
-	cfg.Chronos.ConnectTimeout = chronos.DefaultConnectTimeout
-	cfg.Chronos.ClientTimeout = chronos.DefaultClientTimeout
-	cfg.Chronos.MaxRetries = chronos.DefaultMaxRetires
+	cfg.DataDirectory = defaultDataDirectory
+	cfg.NumberOfReplicas = defaultNumberReplicas
+	cfg.WriteQuorum = defaultWriteQuorum
+	cfg.ReplayInterval = defaultHandoffInterval
+	cfg.KeyTransferInterval = defaultKeyTransferInterval
+	cfg.KeyTransferBatchSize = defaultKeyTransferChunkSize
+	cfg.KeyRecvTimeout = defaultKeyRecvTimeout
+	cfg.ConnectTimeout = defaultConnectTimeout
+	cfg.ClientTimeout = defaultClientTimeout
+	cfg.MaxRetries = defaultMaxRetires
 	// influxdb
 	cfg.InfluxDB.Port = influxdb.DefaultPort
 	cfg.InfluxDB.ConnectTimeout = influxdb.DefaultConnectTimeout
@@ -86,11 +107,11 @@ func setDefaults(cfg *MainCfg) {
 	cfg.InfluxDB.MaxRetries = influxdb.DefaultMaxRetries
 }
 
-func validateConfig(cfg *MainCfg) error {
+func validateConfig(cfg *ChronosCfg) error {
 	// make sure the node ID is part of the list of nodes
 	validNodeID := false
-	for node := range cfg.Chronos.Nodes {
-		if cfg.Chronos.NodeID == node {
+	for node := range cfg.Nodes {
+		if cfg.NodeID == node {
 			validNodeID = true
 			break
 		}
@@ -99,17 +120,17 @@ func validateConfig(cfg *MainCfg) error {
 		return errors.New("node_id not found in dynamo.nodes")
 	}
 
-	if cfg.Chronos.WriteQuorum > cfg.Chronos.NumberOfReplicas {
+	if cfg.WriteQuorum > cfg.NumberOfReplicas {
 		return errors.New("number of replicas must be less or equal to the qrite quorum")
 	}
 
 	// the recovery grace period should be 2x higher than the hints handoff interval and the key transfer
 	// interval to make sure we don't exit recovery mode *before* hints start to be replayed
-	if !((cfg.Chronos.ReplayInterval * 2) <= cfg.Chronos.RecoveryGracePeriod) {
+	if !((cfg.ReplayInterval * 2) <= cfg.RecoveryGracePeriod) {
 		return errors.New("the recovery grace period should be at least 2x larger than the handoff interval")
 	}
 
-	if !((cfg.Chronos.KeyTransferInterval * 2) <= cfg.Chronos.RecoveryGracePeriod) {
+	if !((cfg.KeyTransferInterval * 2) <= cfg.RecoveryGracePeriod) {
 		return errors.New("the recovery grace period should be at least 2x larger than the key transfer interval")
 	}
 

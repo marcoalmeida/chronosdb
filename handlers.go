@@ -13,7 +13,7 @@ import (
 )
 
 // Setup handlers, listen and serve ChronosDB
-func serve(app *appCfg) {
+func serve(app *app) {
 	// compatible with InfluxDB
 	//"/write"
 	//"/query"
@@ -34,10 +34,10 @@ func serve(app *appCfg) {
 
 	app.logger.Info(
 		"Ready and listening",
-		zap.Int64("port", app.cfg.Port),
-		zap.String("IP", app.cfg.ListenIP))
+		zap.Int64("port", app.port),
+		zap.String("IP", app.listen))
 
-	listenOn := fmt.Sprintf("%s:%d", app.cfg.ListenIP, app.cfg.Port)
+	listenOn := fmt.Sprintf("%s:%d", app.listen, app.port)
 	err := http.ListenAndServe(listenOn, nil)
 	if err != nil {
 		app.logger.Error("Server error", zap.Error(err))
@@ -48,14 +48,14 @@ func serve(app *appCfg) {
 // ChronosDB endpoints
 //
 
-func statusHandler(app *appCfg) http.HandlerFunc {
+func statusHandler(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := app.chronos.NodeStatus()
 		respondJSON(w, status, http.StatusOK)
 	}
 }
 
-func ringHandler(app *appCfg) http.HandlerFunc {
+func ringHandler(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// TODO: implement GET /ring/status to collect and return the status of all nodes
 		switch r.Method {
@@ -68,7 +68,7 @@ func ringHandler(app *appCfg) http.HandlerFunc {
 	}
 }
 
-func dbHandler(app *appCfg) http.HandlerFunc {
+func dbHandler(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := r.ParseForm()
 		if err != nil {
@@ -112,7 +112,7 @@ func dbHandler(app *appCfg) http.HandlerFunc {
 	}
 }
 
-func keyHandler(app *appCfg) http.HandlerFunc {
+func keyHandler(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		k := r.URL.Path[len("/key/"):]
 		if k == "" {
@@ -164,7 +164,7 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 // forwards it
 //
 // this endpoint should otherwise be compatible with InfluxDB's /write
-func writeHandler(app *appCfg) http.HandlerFunc {
+func writeHandler(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// As per the documentation "The InfluxDB API makes no attempt to be RESTful."
 		// and it shows; the response seems to usually be JSON, so we'll try to follow that here while dealing with
@@ -187,7 +187,7 @@ func writeHandler(app *appCfg) http.HandlerFunc {
 	}
 }
 
-func queryHandler(app *appCfg) http.HandlerFunc {
+func queryHandler(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// InfluxDB allows for both GET and POST requests when querying data, and the same parameters either as URL
 		// parameters or as part of the body
@@ -216,17 +216,17 @@ func queryHandler(app *appCfg) http.HandlerFunc {
 // InfluxDB endpoints for the Prometheus remote read and write API (v1)
 //
 
-func prometheusReadV1(app *appCfg) http.HandlerFunc {
+func prometheusReadV1(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func prometheusWriteV1(app *appCfg) http.HandlerFunc {
+func prometheusWriteV1(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func prometheusMetricsV1(app *appCfg) http.HandlerFunc {
+func prometheusMetricsV1(app *app) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 	}
 }

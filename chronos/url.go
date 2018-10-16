@@ -22,7 +22,7 @@ func (d *Chronos) nodeIsCoordinator(form url.Values) bool {
 
 // generate a URL to be used for forwarding a request
 func (d *Chronos) createForwardURL(node string, uri string) string {
-	u, err := url.Parse(fmt.Sprintf("http://%s:%d%s", node, d.chronosDBPort, uri))
+	u, err := url.Parse(fmt.Sprintf("http://%s:%d%s", node, d.cfg.Port, uri))
 	if err != nil {
 		return ""
 	}
