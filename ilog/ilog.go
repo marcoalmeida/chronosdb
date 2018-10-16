@@ -1,4 +1,4 @@
-package chunk
+package ilog
 
 import (
 	"bytes"
@@ -14,32 +14,30 @@ import (
 	"go.uber.org/zap"
 )
 
-// directory structure and modus operandi for replaying chunks
+// ChronosDB Intent Log
 //
-// Chunk replay is how ChronosDB deals with temporary node failures.
-// When a given replica A is down the payload intended to A is stored locally on the coordinator node. When the
-// failed node returns to the cluster, the
-// updates received by the neighboring nodes are handed off to it.
+// The Intent Log is used by ChronosDB to deal with temporary node failures.
+// When a given replica A is down, the payload intended to A is stored locally on the coordinator node. When the
+// failed node is back online the payload is replayed and the local copy removed.
 
+// directory structure and modus operandi for replaying entries
+//
 // this package manages local copies of
 //
-// chunks of metrics that failed to be forwarded to a replica by keeping a local copy
-//
-// in order to make sure the background tasks that replay chunks will not see a partially written payload, the
-// following method is implemented:
+// in order to make sure the background tasks that replay entries in the IL will not see a partially written payload,
+// the following method is implemented:
 // - one directory per node, each containing two sub-directories: tmp and new
-// - each chunk is written to $chronosdb/chunks/<node>/tmp/<unique>, where <unique> is a unique name
-// - once successfully written, the file is moved to $chronosdb/chunks/<node>/new/<unique> using rename (atomic [1])
+// - each entry is written to $chronosdb/intent_log/<node>/tmp/<unique>, where <unique> is a unique name
+// - once successfully written, the file is moved to $chronosdb/intent_log/<node>/new/<unique> using rename (atomic [1])
 //
-// there can be multiple threads reading chunks at the same time
+// there can be multiple threads reading entries at the same time
 
-// the format of a chunk file: simple text file with metrics defined as per the line protocol plus the original URI
+// the format of a entry file: simple text file with metrics defined as per the line protocol plus the original URI
 // (which we need to create the request):
 //
 // node
 // URI
-// DB
-// Measurement
+// Key
 // payload
 // ...
 // payload
@@ -47,18 +45,19 @@ import (
 // [1] - http://pubs.opengroup.org/onlinepubs/9699919799/functions/rename.html
 
 const (
-	chunksDirectoryName      = "chunks"
+	intentLogDirectoryName  = "intent_log"
 	tmpDirectoryName        = "tmp"
 	newDirectoryName        = "new"
 	processingDirectoryName = "processing"
 )
 
-type Hint struct {
+type Entry struct {
 	Node string
 	URI  string
 	// keep db and measurement for easier access to these values (e.g., logging)
-	Key      *coretypes.Key
-	Payload  []byte
+	Key     *coretypes.Key
+	Payload []byte
+	// full path to the entry itself so that we can Remove it after replayed
 	filePath string
 }
 
@@ -74,12 +73,12 @@ func New(dataDir string, logger *zap.Logger) *Cfg {
 	}
 }
 
-func (h *Cfg) getPath(node string, dir string) string {
-	return filepath.Join(h.chunksRoot(), node, dir)
+func (h *Cfg) intentLogRoot() string {
+	return fmt.Sprintf("%s/%s", h.dataDir, intentLogDirectoryName)
 }
 
-func (h *Cfg) chunksRoot() string {
-	return fmt.Sprintf("%s/%s", h.dataDir, chunksDirectoryName)
+func (h *Cfg) getPath(node string, dir string) string {
+	return filepath.Join(h.intentLogRoot(), node, dir)
 }
 
 func (h *Cfg) tmpDir(node string) string {
@@ -94,10 +93,10 @@ func (h *Cfg) processingDir(node string) string {
 	return h.getPath(node, processingDirectoryName)
 }
 
-// Store saves a chunk in the local file system. A background process will hand it off once the target node is available.
-func (h *Cfg) Store(chunk *Hint) error {
-	tmpDir := h.tmpDir(chunk.Node)
-	newDir := h.newDir(chunk.Node)
+// Add writes a new entry to the intent log.
+func (h *Cfg) Add(entry *Entry) error {
+	tmpDir := h.tmpDir(entry.Node)
+	newDir := h.newDir(entry.Node)
 
 	if err := ensureDirectory(tmpDir); err != nil {
 		return err
@@ -118,14 +117,14 @@ func (h *Cfg) Store(chunk *Hint) error {
 	zw := gzip.NewWriter(&buf)
 	// headers
 	zw.ModTime = time.Now()
-	// chunk data
-	zw.Write([]byte(chunk.Node))
+	// entry data
+	zw.Write([]byte(entry.Node))
 	zw.Write([]byte("\n"))
-	zw.Write([]byte(chunk.URI))
+	zw.Write([]byte(entry.URI))
 	zw.Write([]byte("\n"))
-	zw.Write([]byte(chunk.Key.String()))
+	zw.Write([]byte(entry.Key.String()))
 	zw.Write([]byte("\n"))
-	zw.Write(chunk.Payload)
+	zw.Write(entry.Payload)
 	// make sure to close the writer to flush the buffer before writing the file
 	zw.Close()
 
@@ -147,24 +146,24 @@ func (h *Cfg) Store(chunk *Hint) error {
 	return nil
 }
 
-// TODO: sort by time stamp and deliver older chunks first
-// Fetch finds and returns a (any) saved chunk that should be handed off
-func (h *Cfg) Fetch() (*Hint, error) {
+// TODO: sort by time stamp and deliver older entries first
+// Fetch finds and returns an entry (oldest one first) that should be replayed;
+func (h *Cfg) Fetch() (*Entry, error) {
 	// list nodes
-	nodes, err := ioutil.ReadDir(h.chunksRoot())
+	nodes, err := ioutil.ReadDir(h.intentLogRoot())
 	if err != nil {
 		return nil, err
 	}
 
 	for _, n := range nodes {
 		path := h.newDir(n.Name())
-		chunks, err := ioutil.ReadDir(path)
+		entries, err := ioutil.ReadDir(path)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(chunks) > 0 {
-			f := chunks[0]
+		if len(entries) > 0 {
+			f := entries[0]
 			// move to "processing"
 			processingDir := h.processingDir(n.Name())
 			if err := ensureDirectory(processingDir); err != nil {
@@ -177,7 +176,7 @@ func (h *Cfg) Fetch() (*Hint, error) {
 			fProcessing.Close()
 
 			if err := os.Rename(path+"/"+f.Name(), fProcessing.Name()); err != nil {
-				return &Hint{}, err
+				return &Entry{}, err
 			}
 
 			// read, split lines, and return the appropriate struct
@@ -200,7 +199,7 @@ func (h *Cfg) Fetch() (*Hint, error) {
 			zr.Close()
 
 			lines := bytes.Split(data, []byte("\n"))
-			return &Hint{
+			return &Entry{
 				Node:     string(lines[0]),
 				URI:      string(lines[1]),
 				Key:      coretypes.KeyFromString(string(lines[2])),
@@ -210,45 +209,45 @@ func (h *Cfg) Fetch() (*Hint, error) {
 		}
 	}
 
-	// if we made it this far, there are no chunks to replay
+	// if we made it this far, there are no entries to replay
 	return nil, nil
 }
 
-// Remove deletes a given chunk from the local file system
-func (h *Cfg) Remove(contents *Hint) error {
-	h.logger.Debug("Removing already handed off chunk", zap.String("file", contents.filePath))
+// Remove deletes a given entry from the local file system
+func (h *Cfg) Remove(contents *Entry) error {
+	h.logger.Debug("Removing already replayed entry", zap.String("file", contents.filePath))
 	return os.Remove(contents.filePath)
 }
 
-// RemoveStale removes chunks intended to nodes that are no longer active
-func (h *Cfg) RemoveStale(activeNodes []string) {
-	h.logger.Info("Starting the removal of stale chunks...")
+// RemoveStale removes entries intended to nodes that are no longer part of the cluster
+func (h *Cfg) RemoveStale(cluster []string) {
+	h.logger.Info("Starting the removal of stale intent log entries...")
 
-	targets, err := ioutil.ReadDir(h.chunksRoot())
+	targets, err := ioutil.ReadDir(h.intentLogRoot())
 	if err != nil {
-		h.logger.Error("Failed to list the root directory for chunks", zap.Error(err))
+		h.logger.Error("Failed to open the intent log", zap.Error(err))
 		return
 	}
 
 	for _, t := range targets {
 		exists := false
-		for _, n := range activeNodes {
+		for _, n := range cluster {
 			if t.Name() == n {
 				exists = true
 				break
 			}
 		}
 		if !exists {
-			path := filepath.Join(h.chunksRoot(), t.Name())
+			path := filepath.Join(h.intentLogRoot(), t.Name())
 			h.logger.Info(
-				"Removing chunk",
+				"Removing entry",
 				zap.String("node", t.Name()),
 				zap.String("path", path),
 			)
 			// actually delete the file
 			if err := os.Remove(path); err != nil {
 				h.logger.Error(
-					"Failed to remove chunk",
+					"Failed to Remove entry",
 					zap.String("node", t.Name()),
 					zap.String("path", path),
 					zap.Error(err),
@@ -257,17 +256,18 @@ func (h *Cfg) RemoveStale(activeNodes []string) {
 		}
 	}
 
-	h.logger.Info("Finished the removal of stale chunks...")
+	h.logger.Info("Finished the removal of stale intent log entries...")
 }
 
-// RestoreDangling moves dangling files from the `processing` state back to `new` for re-processing. Dangling chunks
-// will exist if the hand off process was interrupted
+// RestoreDangling finds and restores back to the log entries that were in the process of being replayed, but for
+// some reason the process was interrupted before successfully completed.
 func (h *Cfg) RestoreDangling() {
-	h.logger.Info("Starting recovery of dangling chunks...")
+	// move dangling files from the `processing` directory back to `new` for re-processing
+	h.logger.Info("Starting recovery of dangling intent log entries...")
 
-	nodes, err := ioutil.ReadDir(h.chunksRoot())
+	nodes, err := ioutil.ReadDir(h.intentLogRoot())
 	if err != nil {
-		h.logger.Error("Failed to list chunks root directory", zap.Error(err))
+		h.logger.Error("Failed to open the intent log", zap.Error(err))
 		return
 	}
 
@@ -277,37 +277,37 @@ func (h *Cfg) RestoreDangling() {
 			continue
 		}
 
-		chunks, err := ioutil.ReadDir(h.processingDir(node.Name()))
+		entries, err := ioutil.ReadDir(h.processingDir(node.Name()))
 		if err != nil {
-			h.logger.Error("Failed to list chunks", zap.Error(err))
+			h.logger.Error("Failed to list intent log entries", zap.Error(err))
 			return
 		}
 
-		for _, chunk := range chunks {
-			src := h.processingDir(node.Name()) + "/" + chunk.Name()
-			dst := h.newDir(node.Name()) + "/" + chunk.Name()
+		for _, entry := range entries {
+			src := h.processingDir(node.Name()) + "/" + entry.Name()
+			dst := h.newDir(node.Name()) + "/" + entry.Name()
 			h.logger.Info(
-				"Moving dangling chunk",
+				"Moving dangling intent log entry",
 				zap.String("src", src),
 				zap.String("dst", dst))
 			err := os.Rename(src, dst)
 			if err != nil {
-				h.logger.Error("Failed to move chunk", zap.Error(err))
+				h.logger.Error("Failed to move intent log entry", zap.Error(err))
 			}
 		}
 	}
 
-	h.logger.Info("Finished recovery of dangling chunks...")
+	h.logger.Info("Finished recovery of dangling intent log entries...")
 }
 
-// SaveForRerun moves a chunk from the `processing` state back to `new`
-func (h *Cfg) SaveForRerun(chunk *Hint) {
-	src := chunk.filePath
+// move an entry from the `processing` state back to `new`
+func (h *Cfg) SaveForRerun(entry *Entry) {
+	src := entry.filePath
 	splitPath := strings.Split(src, "/")
-	chunkName := splitPath[len(splitPath)-1]
+	entryName := splitPath[len(splitPath)-1]
 	// the name is generated using nanoseconds from Epoch and this one in particular will be in the past so it's
 	// impossible to have a collision and this operation is safe
-	dst := h.newDir(chunk.Node) + "/" + chunkName
+	dst := h.newDir(entry.Node) + "/" + entryName
 
 	err := os.Rename(src, dst)
 	if err != nil {

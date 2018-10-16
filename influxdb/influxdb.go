@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"strings"
 
 	"github.com/deckarep/golang-set"
 	"github.com/marcoalmeida/chronosdb/shared"

@@ -1,4 +1,4 @@
-package chunk
+package ilog
 
 import (
 	"os"
@@ -33,7 +33,7 @@ func storeHint(t *testing.T) error {
 	}
 
 	h := New(dataDir, logger)
-	c := &Hint{
+	c := &Entry{
 		Node: node,
 		URI:  uri,
 		Key:  coretypes.NewKey(db, measurement),
@@ -42,7 +42,7 @@ func storeHint(t *testing.T) error {
 		Payload: payload,
 	}
 
-	return h.Store(c)
+	return h.Add(c)
 }
 
 func TestCfg_Store(t *testing.T) {

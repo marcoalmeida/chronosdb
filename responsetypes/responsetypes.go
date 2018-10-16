@@ -24,5 +24,5 @@ type GetDBs struct {
 
 type NodeStatus struct {
 	Recovering   map[*coretypes.Key]time.Time `json:"recovering"`
-	Initializing bool `json:"initializing"`
+	Initializing bool                         `json:"initializing"`
 }

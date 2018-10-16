@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
-	"github.com/marcoalmeida/chronosdb/dynamo"
+	"github.com/marcoalmeida/chronosdb/chronos"
 	"github.com/marcoalmeida/chronosdb/influxdb"
 	"go.uber.org/zap"
 )
@@ -24,7 +24,7 @@ type MainCfg struct {
 	ListenIP    string `toml:"listen_ip"`
 	Port        int64
 	EnableDebug bool `toml:"enable_debug"`
-	Dynamo      dynamo.Cfg
+	Chronos     chronos.Cfg
 	InfluxDB    influxdb.Cfg
 }
 
@@ -69,16 +69,16 @@ func setDefaults(cfg *MainCfg) {
 	cfg.Port = defaultPort
 	cfg.EnableDebug = defaultDebug
 	// dynamo
-	cfg.Dynamo.DataDirectory = dynamo.DefaultDataDirectory
-	cfg.Dynamo.NumberOfReplicas = dynamo.DefaultNumberReplicas
-	cfg.Dynamo.WriteQuorum = dynamo.DefaultWriteQuorum
-	cfg.Dynamo.HandoffInterval = dynamo.DefaultHandoffInterval
-	cfg.Dynamo.KeyTransferInterval = dynamo.DefaultKeyTransferInterval
-	cfg.Dynamo.KeyTransferBatchSize = dynamo.DefaultKeyTransferChunkSize
-	cfg.Dynamo.KeyRecvTimeout = dynamo.DefaultKeyRecvTimeout
-	cfg.Dynamo.ConnectTimeout = dynamo.DefaultConnectTimeout
-	cfg.Dynamo.ClientTimeout = dynamo.DefaultClientTimeout
-	cfg.Dynamo.MaxRetries = dynamo.DefaultMaxRetires
+	cfg.Chronos.DataDirectory = chronos.DefaultDataDirectory
+	cfg.Chronos.NumberOfReplicas = chronos.DefaultNumberReplicas
+	cfg.Chronos.WriteQuorum = chronos.DefaultWriteQuorum
+	cfg.Chronos.ReplayInterval = chronos.DefaultHandoffInterval
+	cfg.Chronos.KeyTransferInterval = chronos.DefaultKeyTransferInterval
+	cfg.Chronos.KeyTransferBatchSize = chronos.DefaultKeyTransferChunkSize
+	cfg.Chronos.KeyRecvTimeout = chronos.DefaultKeyRecvTimeout
+	cfg.Chronos.ConnectTimeout = chronos.DefaultConnectTimeout
+	cfg.Chronos.ClientTimeout = chronos.DefaultClientTimeout
+	cfg.Chronos.MaxRetries = chronos.DefaultMaxRetires
 	// influxdb
 	cfg.InfluxDB.Port = influxdb.DefaultPort
 	cfg.InfluxDB.ConnectTimeout = influxdb.DefaultConnectTimeout
@@ -89,8 +89,8 @@ func setDefaults(cfg *MainCfg) {
 func validateConfig(cfg *MainCfg) error {
 	// make sure the node ID is part of the list of nodes
 	validNodeID := false
-	for node := range cfg.Dynamo.Nodes {
-		if cfg.Dynamo.NodeID == node {
+	for node := range cfg.Chronos.Nodes {
+		if cfg.Chronos.NodeID == node {
 			validNodeID = true
 			break
 		}
@@ -99,17 +99,17 @@ func validateConfig(cfg *MainCfg) error {
 		return errors.New("node_id not found in dynamo.nodes")
 	}
 
-	if cfg.Dynamo.WriteQuorum > cfg.Dynamo.NumberOfReplicas {
+	if cfg.Chronos.WriteQuorum > cfg.Chronos.NumberOfReplicas {
 		return errors.New("number of replicas must be less or equal to the qrite quorum")
 	}
 
 	// the recovery grace period should be 2x higher than the hints handoff interval and the key transfer
 	// interval to make sure we don't exit recovery mode *before* hints start to be replayed
-	if !((cfg.Dynamo.HandoffInterval * 2) <= cfg.Dynamo.RecoveryGracePeriod) {
+	if !((cfg.Chronos.ReplayInterval * 2) <= cfg.Chronos.RecoveryGracePeriod) {
 		return errors.New("the recovery grace period should be at least 2x larger than the handoff interval")
 	}
 
-	if !((cfg.Dynamo.KeyTransferInterval * 2) <= cfg.Dynamo.RecoveryGracePeriod) {
+	if !((cfg.Chronos.KeyTransferInterval * 2) <= cfg.Chronos.RecoveryGracePeriod) {
 		return errors.New("the recovery grace period should be at least 2x larger than the key transfer interval")
 	}
 

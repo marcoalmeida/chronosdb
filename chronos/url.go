@@ -1,4 +1,4 @@
-package dynamo
+package chronos
 
 import (
 	"fmt"
@@ -16,13 +16,13 @@ const (
 )
 
 // return true iff the current node is coordinating this request, i.e., the `forward` parameter has not been set
-func (dyn *Dynamo) nodeIsCoordinator(form url.Values) bool {
+func (d *Chronos) nodeIsCoordinator(form url.Values) bool {
 	return form.Get(qsForward) == ""
 }
 
 // generate a URL to be used for forwarding a request
-func (dyn *Dynamo) createForwardURL(node string, uri string) string {
-	u, err := url.Parse(fmt.Sprintf("http://%s:%d%s", node, dyn.chronosDBPort, uri))
+func (d *Chronos) createForwardURL(node string, uri string) string {
+	u, err := url.Parse(fmt.Sprintf("http://%s:%d%s", node, d.chronosDBPort, uri))
 	if err != nil {
 		return ""
 	}
@@ -35,7 +35,7 @@ func (dyn *Dynamo) createForwardURL(node string, uri string) string {
 
 // expand and existing URL to include the internal query string marker that signals a handoff
 // also include the key being handed off just for convenience
-func (dyn *Dynamo) createHandoffURL(uri string, key *coretypes.Key) string {
+func (d *Chronos) createHandoffURL(uri string, key *coretypes.Key) string {
 	u, err := url.ParseRequestURI(uri)
 	if err != nil {
 		return ""
@@ -50,7 +50,7 @@ func (dyn *Dynamo) createHandoffURL(uri string, key *coretypes.Key) string {
 }
 
 // return true iff the current request is a hint being handed off
-func (dyn *Dynamo) requestIsHintedHandoff(form url.Values) bool {
+func (d *Chronos) requestIsHintedHandoff(form url.Values) bool {
 	return form.Get(qsHandoff) == "true"
 
 }
@@ -59,15 +59,15 @@ func (dyn *Dynamo) requestIsHintedHandoff(form url.Values) bool {
 // not pretty, tightly coupled with an InfluxDB URL and overloading it, but we need to create the URL somehow,
 // somewhere.
 // maybe the influxdb package could return a base URL that this function then expands (similarly to createHandoffURL)?
-func (dyn *Dynamo) createKeyTransferURL(key *coretypes.Key) string {
+func (d *Chronos) createKeyTransferURL(key *coretypes.Key) string {
 	return fmt.Sprintf("/write?db=%s&%s=%s&%s=true", key.DB, qsKey, key.String(), qsTransfer)
 }
 
 // return true iff the current request is part of a key transfer
-func (dyn *Dynamo) requestIsKeyTransfer(form url.Values) bool {
+func (d *Chronos) requestIsKeyTransfer(form url.Values) bool {
 	return form.Get(qsTransfer) == "true"
 }
 
-func (dyn *Dynamo) getKeyFromURL(form url.Values) *coretypes.Key {
+func (d *Chronos) getKeyFromURL(form url.Values) *coretypes.Key {
 	return coretypes.KeyFromString(form.Get("key"))
 }

@@ -50,7 +50,7 @@ func serve(app *appCfg) {
 
 func statusHandler(app *appCfg) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status := app.dynamo.NodeStatus()
+		status := app.chronos.NodeStatus()
 		respondJSON(w, status, http.StatusOK)
 	}
 }
@@ -60,7 +60,7 @@ func ringHandler(app *appCfg) http.HandlerFunc {
 		// TODO: implement GET /ring/status to collect and return the status of all nodes
 		switch r.Method {
 		case "GET":
-			nodes := app.dynamo.GetRing()
+			nodes := app.chronos.GetCluster()
 			respondJSON(w, nodes, http.StatusOK)
 		default:
 			respondJSON(w, responsetypes.Error{Message: "Unknown method"}, http.StatusBadRequest)
@@ -81,7 +81,7 @@ func dbHandler(app *appCfg) http.HandlerFunc {
 
 		switch r.Method {
 		case "GET":
-			dbs, err := app.dynamo.GetDBs()
+			dbs, err := app.chronos.GetDBs()
 			if err != nil {
 				respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
 			} else {
@@ -92,9 +92,9 @@ func dbHandler(app *appCfg) http.HandlerFunc {
 			var err error
 
 			if r.Method == "PUT" {
-				node, err = app.dynamo.CreateDB(r.URL.RequestURI(), r.Form, db)
+				node, err = app.chronos.CreateDB(r.URL.RequestURI(), r.Form, db)
 			} else {
-				node, err = app.dynamo.DropDB(r.URL.RequestURI(), r.Form, db)
+				node, err = app.chronos.DropDB(r.URL.RequestURI(), r.Form, db)
 			}
 			if err != nil {
 				response := responsetypes.Error{
@@ -124,7 +124,7 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 		key := coretypes.KeyFromString(k)
 		switch r.Method {
 		case "GET":
-			keyExists, err := app.dynamo.DoesKeyExist(key)
+			keyExists, err := app.chronos.DoesKeyExist(key)
 			if err != nil {
 				respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
 				return
@@ -137,7 +137,7 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 			}
 		case "PUT":
 			// mark key as successfully transferred
-			err := app.dynamo.KeyRecvCompleted(key)
+			err := app.chronos.KeyRecvCompleted(key)
 			if err != nil {
 				respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusInternalServerError)
 			} else {
@@ -159,7 +159,7 @@ func keyHandler(app *appCfg) http.HandlerFunc {
 // indicate the node
 // should accept the payload instead of acting like a coordinator
 //
-// when present, this parameter instructs the Dynamo to call InfluxDB and store the payload locally
+// when present, this parameter instructs the Chronos to call InfluxDB and store the payload locally
 // if absent, the node handling it acts as a coordinator, finds all nodes where the data should be written to, and
 // forwards it
 //
@@ -181,7 +181,7 @@ func writeHandler(app *appCfg) http.HandlerFunc {
 			app.logger.Error("Failed to read request body", zap.Error(err))
 			respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusBadRequest)
 		} else {
-			status, response := app.dynamo.Write(r.URL.RequestURI(), r.URL.Query(), payload)
+			status, response := app.chronos.Write(r.URL.RequestURI(), r.URL.Query(), payload)
 			respondPassThrough(w, response, status)
 		}
 	}
@@ -207,7 +207,7 @@ func queryHandler(app *appCfg) http.HandlerFunc {
 			return
 		}
 
-		status, response := app.dynamo.Query(r.URL.RequestURI(), r.Form)
+		status, response := app.chronos.Query(r.URL.RequestURI(), r.Form)
 		respondPassThrough(w, response, status)
 	}
 }

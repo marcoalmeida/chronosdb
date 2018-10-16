@@ -8,17 +8,17 @@ import (
 	"os"
 	"time"
 
+	"github.com/marcoalmeida/chronosdb/chronos"
 	"github.com/marcoalmeida/chronosdb/config"
-	"github.com/marcoalmeida/chronosdb/dynamo"
 	"github.com/marcoalmeida/chronosdb/influxdb"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
 type appCfg struct {
-	cfg    *config.MainCfg
-	logger *zap.Logger
-	dynamo *dynamo.Dynamo
+	cfg     *config.MainCfg
+	logger  *zap.Logger
+	chronos *chronos.Chronos
 }
 
 // TODO: is rand still used anywhere?
@@ -81,12 +81,12 @@ func main() {
 
 	// application instance
 	app := &appCfg{
-		cfg:    cfg,
-		logger: logger,
-		dynamo: dynamo.New(cfg.Port, &cfg.Dynamo, &cfg.InfluxDB, logger),
+		cfg:     cfg,
+		logger:  logger,
+		chronos: chronos.New(cfg.Port, &cfg.Chronos, &cfg.InfluxDB, logger),
 	}
-	// start Dynamo-related tasks (these run in the background and do not block)
-	app.dynamo.Start()
-	// listen and serve ChronosDB (most of the Dynamo-related tasks above )
+	// start Chronos-related tasks (these run in the background and do not block)
+	app.chronos.Start()
+	// listen and serve ChronosDB (most of the Chronos-related tasks above )
 	serve(app)
 }
