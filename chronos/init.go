@@ -21,7 +21,7 @@ func (c *Chronos) initialize() {
 	c.logger.Debug("Initialization process: creating DBs")
 	// don't go anywhere until all DBs have been created
 	for c.isInitializing {
-		dbs, err := c.fetchAllDBs()
+		dbs, err := c.fetchRemoteDBs()
 		if err != nil {
 			c.logger.Error("Failed to get remote list of databases", zap.Error(err))
 			// sleep for a period of time and then repeat until we successfully get the list of existing DBs
@@ -43,7 +43,7 @@ func (c *Chronos) initialize() {
 
 // fetch all DBs from all nodes in the cluster
 // all nodes are expected to have all DBs so return success if the read quorum is met
-func (c *Chronos) fetchAllDBs() ([]string, error) {
+func (c *Chronos) fetchRemoteDBs() ([]string, error) {
 	keyDelimiter := "_"
 	// keep track of how many times a given list of DBs occurs
 	dbsCount := make(map[string]int)
