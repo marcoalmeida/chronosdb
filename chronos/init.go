@@ -45,7 +45,7 @@ func (d *Chronos) initialize() {
 // all nodes are expected to have all DBs so return success if the read quorum is met
 func (d *Chronos) fetchAllDBs() ([]string, error) {
 	keyDelimiter := "_"
-	// keep track of how many nodes reply with the same list of DBs
+	// keep track of how many times a given list of DBs occurs
 	dbsCount := make(map[string]int)
 	cluster := d.GetCluster()
 
@@ -56,11 +56,11 @@ func (d *Chronos) fetchAllDBs() ([]string, error) {
 		}
 
 		d.logger.Debug("Fetching remote DBs", zap.String("node", node))
-
 		dbs, err := d.gossip.GetDBs(node)
 		if err != nil {
 			d.logger.Error("Failed to fetch remote DBs", zap.String("node", node), zap.Error(err))
 		} else {
+			d.logger.Debug("Found remote DBs", zap.String("node", node), zap.Strings("dbs", dbs.Databases))
 			// slices can't be indexed, so we use the string that results from sort+concatenate
 			sort.Strings(dbs.Databases)
 			key := strings.Join(dbs.Databases, keyDelimiter)
@@ -77,7 +77,15 @@ func (d *Chronos) fetchAllDBs() ([]string, error) {
 	// check quorum
 	for k, v := range dbsCount {
 		if v >= d.cfg.ReadQuorum {
-			return strings.Split(k, keyDelimiter), nil
+			// filter out empty strings
+			dbs := []string{}
+			for _, db := range strings.Split(k, keyDelimiter) {
+				if db != "" {
+					dbs = append(dbs, db)
+				}
+			}
+
+			return dbs, nil
 		}
 	}
 
