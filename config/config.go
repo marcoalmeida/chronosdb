@@ -1,4 +1,3 @@
-// TODO: should config be an independent package? why not make config parsing part of main?
 package config
 
 import (
