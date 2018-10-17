@@ -27,13 +27,13 @@ type fsmForwardWriteResult struct {
 	response   []byte
 }
 
-func (d *Chronos) fsmStartWrite(uri string, form url.Values, payload []byte) (int, []byte) {
+func (c *Chronos) fsmStartWrite(uri string, form url.Values, payload []byte) (int, []byte) {
 	// we need the DB name for a number of things, might as well extract it now and pass it along to avoid repeating
 	// the same call
 	db := influxdb.DBNameFromURL(form)
 
-	if d.nodeIsCoordinator(form) {
-		d.logger.Debug("Coordinating write", zap.String("db", db), zap.String("node", d.cfg.NodeID))
+	if c.nodeIsCoordinator(form) {
+		c.logger.Debug("Coordinating write", zap.String("db", db), zap.String("node", c.cfg.NodeID))
 		// start one coordinating task per measurement
 		resultsChan := make(chan fsmWriteResult)
 		metricsByMeasurement := influxdb.SplitMeasurements(payload)
@@ -41,7 +41,7 @@ func (d *Chronos) fsmStartWrite(uri string, form url.Values, payload []byte) (in
 		for measurement, metrics := range metricsByMeasurement {
 			// create the partitioning key from the DB and measurement names
 			key := coretypes.NewKey(db, measurement)
-			go d.fsmCoordinateWrite(uri, key, metrics, resultsChan)
+			go c.fsmCoordinateWrite(uri, key, metrics, resultsChan)
 		}
 
 		// wait for the results of all FSMs; return an error if any fails
@@ -53,7 +53,7 @@ func (d *Chronos) fsmStartWrite(uri string, form url.Values, payload []byte) (in
 			status = r.httpStatus
 			response = r.response
 			if !(r.httpStatus >= 200 && r.httpStatus <= 299) {
-				d.logger.Error(
+				c.logger.Error(
 					"Failed coordinated write",
 					zap.String("key", r.key.String()),
 					zap.String("node", r.node),
@@ -61,7 +61,7 @@ func (d *Chronos) fsmStartWrite(uri string, form url.Values, payload []byte) (in
 				// return an error on any failures -- the client may want to retry
 				return r.httpStatus, r.response
 			} else {
-				d.logger.Debug(
+				c.logger.Debug(
 					"Successful coordinated write",
 					zap.String("key", r.key.String()),
 					zap.String("node", r.node),
@@ -72,37 +72,37 @@ func (d *Chronos) fsmStartWrite(uri string, form url.Values, payload []byte) (in
 		return status, response
 	} else {
 		// write locally
-		d.logger.Debug("Not coordinating: writing locally",
+		c.logger.Debug("Not coordinating: writing locally",
 			zap.String("db", db),
-			zap.String("node", d.cfg.NodeID),
+			zap.String("node", c.cfg.NodeID),
 		)
-		return d.fsmWriteLocally(uri, db, payload)
+		return c.fsmWriteLocally(uri, db, payload)
 	}
 }
 
-func (d *Chronos) fsmWriteLocally(origURI string, db string, metrics []byte) (int, []byte) {
-	return d.influxDB.Write(origURI, db, metrics)
+func (c *Chronos) fsmWriteLocally(origURI string, db string, metrics []byte) (int, []byte) {
+	return c.influxDB.Write(origURI, db, metrics)
 }
 
-func (d *Chronos) fsmCoordinateWrite(
+func (c *Chronos) fsmCoordinateWrite(
 	uri string,
 	key *coretypes.Key,
 	metrics []byte,
 	resultsChan chan<- fsmWriteResult,
 ) {
 	// get the nodes to which this key should be written to
-	nodes := d.cluster.GetNodesRanked(key.String())
-	if len(nodes) < d.cfg.NumberOfReplicas {
-		d.logger.Error(
+	nodes := c.cluster.GetNodesRanked(key.String())
+	if len(nodes) < c.cfg.NumberOfReplicas {
+		c.logger.Error(
 			"Not enough nodes",
-			zap.Int("need", d.cfg.NumberOfReplicas),
+			zap.Int("need", c.cfg.NumberOfReplicas),
 			zap.Int("found", len(nodes)))
 		return
 	}
 
 	// select the top N replicas for this key
-	nodes = nodes[:d.cfg.NumberOfReplicas]
-	d.logger.Debug(
+	nodes = nodes[:c.cfg.NumberOfReplicas]
+	c.logger.Debug(
 		"Writing metrics",
 		zap.String("key", key.String()),
 		zap.Strings("nodes", nodes),
@@ -113,39 +113,39 @@ func (d *Chronos) fsmCoordinateWrite(
 	// TODO: data we already have
 	forwardWriteResultsChan := make(chan fsmForwardWriteResult)
 	for _, node := range nodes {
-		go d.fsmForwardWrite(node, uri, key, metrics, forwardWriteResultsChan)
+		go c.fsmForwardWrite(node, uri, key, metrics, forwardWriteResultsChan)
 	}
 
 	// if we got to write to enough nodes, save local intentLog for the other ones; otherwise signal failure
-	d.fsmCheckWriteQuorum(nodes, uri, key, metrics, forwardWriteResultsChan, resultsChan)
+	c.fsmCheckWriteQuorum(nodes, uri, key, metrics, forwardWriteResultsChan, resultsChan)
 }
 
-func (d *Chronos) fsmForwardWrite(
+func (c *Chronos) fsmForwardWrite(
 	node string,
 	origURI string,
 	key *coretypes.Key,
 	metrics []byte,
 	forwardWriteResultsChan chan<- fsmForwardWriteResult,
 ) {
-	d.logger.Debug("Forwarding write",
+	c.logger.Debug("Forwarding write",
 		zap.String("key", key.String()),
-		zap.String("coordinator", d.cfg.NodeID),
+		zap.String("coordinator", c.cfg.NodeID),
 		zap.String("target", node),
 	)
-	u := d.createForwardURL(node, origURI)
+	u := c.createForwardURL(node, origURI)
 	status, response := shared.DoPost(
 		u,
 		metrics,
 		nil,
-		d.httpClient,
-		d.cfg.MaxRetries,
-		d.logger, "chronos.fsmForwardWrite",
+		c.httpClient,
+		c.cfg.MaxRetries,
+		c.logger, "chronos.fsmForwardWrite",
 	)
 
 	forwardWriteResultsChan <- fsmForwardWriteResult{node: node, httpStatus: status, response: response}
 }
 
-func (d *Chronos) fsmCheckWriteQuorum(
+func (c *Chronos) fsmCheckWriteQuorum(
 	nodes []string,
 	uri string,
 	key *coretypes.Key,
@@ -159,11 +159,11 @@ func (d *Chronos) fsmCheckWriteQuorum(
 	// save for using outside of the loop
 	var statusOK, statusFail int
 	var responseOK, responseFail []byte
-	for i := 0; i < d.cfg.NumberOfReplicas; i++ {
+	for i := 0; i < c.cfg.NumberOfReplicas; i++ {
 		result := <-forwardWriteResultsChan
 		if result.httpStatus >= 400 && result.httpStatus <= 499 {
 			// client side error, no point on trying to continue
-			d.logger.Error(
+			c.logger.Error(
 				"Write failed: client-side error",
 				zap.String("node", result.node),
 				zap.String("key", key.String()),
@@ -189,7 +189,7 @@ func (d *Chronos) fsmCheckWriteQuorum(
 
 	// great success, nothing else to do here
 	if len(failures) == 0 {
-		d.logger.Debug("Successfully wrote to all nodes",
+		c.logger.Debug("Successfully wrote to all nodes",
 			zap.Strings("nodes", nodes),
 			zap.String("key", key.String()),
 		)
@@ -198,25 +198,25 @@ func (d *Chronos) fsmCheckWriteQuorum(
 		return
 	}
 
-	successfulWrites := d.cfg.NumberOfReplicas - len(failures)
+	successfulWrites := c.cfg.NumberOfReplicas - len(failures)
 	// we still succeeded if we wrote to enough nodes; just keep a local hint to replay later
-	if successfulWrites > 0 && successfulWrites >= d.cfg.WriteQuorum {
-		d.logger.Debug(
+	if successfulWrites > 0 && successfulWrites >= c.cfg.WriteQuorum {
+		c.logger.Debug(
 			"Write quorum met; storing local intentLog",
-			zap.Int("write_quorum", d.cfg.WriteQuorum),
+			zap.Int("write_quorum", c.cfg.WriteQuorum),
 			zap.Int("successful_writes", successfulWrites),
 		)
 		// store local intentLog to replay later
 		for _, fail := range failures {
-			d.logger.Debug(
+			c.logger.Debug(
 				"Writing hint",
 				zap.String("node", fail.node),
 				zap.String("key", key.String()),
 			)
-			err := d.fsmStoreHint(fail.node, uri, key, metrics)
+			err := c.fsmStoreHint(fail.node, uri, key, metrics)
 			if err != nil {
 				// if we can't store the hint the write effectively failed
-				d.logger.Error("Failed to write hint", zap.Error(err), zap.String("node", fail.node))
+				c.logger.Error("Failed to write hint", zap.Error(err), zap.String("node", fail.node))
 				resultsChan <- fsmWriteResult{
 					key:        key,
 					httpStatus: fail.httpStatus,
@@ -230,24 +230,24 @@ func (d *Chronos) fsmCheckWriteQuorum(
 		resultsChan <- fsmWriteResult{key: key, httpStatus: statusOK, response: responseOK}
 	} else {
 		// quorum not met
-		d.logger.Error(
+		c.logger.Error(
 			"Write quorum not met or all nodes failed",
-			zap.Int("write_quorum", d.cfg.WriteQuorum),
+			zap.Int("write_quorum", c.cfg.WriteQuorum),
 			zap.Int("successful_writes", successfulWrites))
 		resultsChan <- fsmWriteResult{key: key, httpStatus: statusFail, response: responseFail}
 	}
 }
 
 // write the payload to the local file system as a hint to be replayed later
-func (d *Chronos) fsmStoreHint(
+func (c *Chronos) fsmStoreHint(
 	node string,
 	uri string,
 	key *coretypes.Key,
 	payload []byte,
 ) error {
-	return d.intentLog.Add(&ilog.Entry{
+	return c.intentLog.Add(&ilog.Entry{
 		Node:    node,
-		URI:     d.createHandoffURL(uri, key),
+		URI:     c.createHandoffURL(uri, key),
 		Key:     key,
 		Payload: payload,
 	})
