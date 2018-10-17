@@ -300,8 +300,14 @@ func (h *Cfg) RestoreDangling() {
 	h.logger.Info("Finished recovery of dangling intent log entries...")
 }
 
-// move an entry from the `processing` state back to `new`
-func (h *Cfg) SaveForRerun(entry *Entry) {
+// ReAdd changes the state of a log entry from being processed to available for processing
+func (h *Cfg) ReAdd(entry *Entry) {
+	// TODO: add a parameter to reduce the priority of the node (or just make it the default behavior)
+	// TODO: add the notion of priority to Fetch so that a given order (chronological + healthy nodes) is respected
+	//  otherwise it's possible to continuously fetch an entry destined to a failed replica, put it back,
+	//  fetch another one, ...
+
+	// move from `processing` to `new`
 	src := entry.filePath
 	splitPath := strings.Split(src, "/")
 	entryName := splitPath[len(splitPath)-1]

@@ -118,15 +118,14 @@ func (c *Chronos) replayIntentLog() {
 			if wait == 0 {
 				wait = 1
 			} else {
-				wait *= 2
-			}
-			if wait > c.cfg.ReplayInterval {
-				wait = c.cfg.ReplayInterval
+				wait = shared.Min(wait*2, c.cfg.ReplayInterval)
 			}
 			continue
 		} else {
 			// there are more log entries to process, reduce the waiting period
-			wait /= 2
+			if wait > 0 {
+				wait /= 2
+			}
 		}
 
 		c.logger.Info(
@@ -155,14 +154,8 @@ func (c *Chronos) replayIntentLog() {
 				zap.String("key", entry.Key.String()),
 				zap.String("uri", entry.URI),
 			)
-			// TODO: a failed node can significantly slow down replaying data to healthy nodes
-			// adjust the wait period to avoid unnecessary networking traffic when nodes are not available
-			wait *= 2
-			if wait > c.cfg.ReplayInterval {
-				wait = c.cfg.ReplayInterval
-			}
-			// save the entry for replaying later
-			c.intentLog.SaveForRerun(entry)
+			// put the entry back for replaying later
+			c.intentLog.ReAdd(entry)
 		}
 	}
 }

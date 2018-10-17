@@ -11,6 +11,14 @@ import (
 	"go.uber.org/zap"
 )
 
+func Min(a int, b int) int {
+	if a < b {
+		return a
+	}
+
+	return b
+}
+
 // exponential backoff
 func Backoff(i int, caller string, logger *zap.Logger) {
 	// 2^i -- this will always be used for very small values (number of retries), so the signed/unsigned type casts
