@@ -54,7 +54,10 @@ func TestCfg_Store(t *testing.T) {
 
 func TestCfg_Fetch(t *testing.T) {
 	// make sure an entry exists
-	storeEntry(t)
+	err := storeEntry(t)
+	if err != nil {
+		t.Error("Failed to create intent log entry", err)
+	}
 
 	logger, err := zap.NewProduction()
 	if err != nil {
