@@ -26,7 +26,7 @@ func cleanup(t *testing.T) {
 	}
 }
 
-func storeHint(t *testing.T) error {
+func storeEntry(t *testing.T) error {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		t.Error(err)
@@ -34,11 +34,9 @@ func storeHint(t *testing.T) error {
 
 	h := New(dataDir, logger)
 	c := &Entry{
-		Node: node,
-		URI:  uri,
-		Key:  coretypes.NewKey(db, measurement),
-		//DB:          db,
-		//Measurement: measurement,
+		Node:    node,
+		URI:     uri,
+		Key:     coretypes.NewKey(db, measurement),
 		Payload: payload,
 	}
 
@@ -46,7 +44,7 @@ func storeHint(t *testing.T) error {
 }
 
 func TestCfg_Store(t *testing.T) {
-	err := storeHint(t)
+	err := storeEntry(t)
 	if err != nil {
 		t.Error(err)
 	}
@@ -55,8 +53,8 @@ func TestCfg_Store(t *testing.T) {
 }
 
 func TestCfg_Fetch(t *testing.T) {
-	// make sure a hint exists
-	storeHint(t)
+	// make sure an entry exists
+	storeEntry(t)
 
 	logger, err := zap.NewProduction()
 	if err != nil {
@@ -72,10 +70,6 @@ func TestCfg_Fetch(t *testing.T) {
 	if c.Node != node {
 		t.Error("Expected", node, "got", c.Node)
 	}
-
-	//if c.DB != db {
-	//	t.Error("Expected", db, "got", c.DB)
-	//}
 
 	if c.URI != uri {
 		t.Error("Expected", uri, "got", c.URI)
