@@ -23,7 +23,7 @@ func (c *Chronos) fsmStartQuery(
 ) (int, []byte) {
 	// run the query locally and return the results
 	if !c.nodeIsCoordinator(form) {
-		c.logger.Debug("Querying locally",
+		c.logger.Debug("Running query locally",
 			zap.String("db", form.Get("db")),
 			zap.String("node", c.cfg.NodeID),
 		)
@@ -32,21 +32,15 @@ func (c *Chronos) fsmStartQuery(
 	}
 
 	// act as a coordinator and distribute the query among all replicas that hold the key this query is operating on
-	db := influxdb.DBNameFromURL(form)
-	query := influxdb.QueryFromURL(form)
-	c.logger.Debug(
-		"Coordinating query",
-		zap.String("db", db),
-		zap.String("node", c.cfg.NodeID),
-		zap.String("query", query),
-	)
-
 	return c.fsmCoordinateQuery(uri, form)
 }
 
 func (c *Chronos) fsmRunQuery(uri string, form url.Values) (int, []byte) {
-	// both hinted hand offs and key transfers include the key name in the query string, so this is safe
-	key := c.getKeyFromURL(form)
+	// the key is always added by the coordinator
+	key := getKeyFromURL(form)
+	if key == nil {
+		// TODO: handle error
+	}
 	// if the node is in recovering mode for the key being queried we can't proceed
 	if c.isRecovering(key) {
 		return http.StatusServiceUnavailable, []byte("in recovery")
@@ -66,6 +60,13 @@ func (c *Chronos) fsmCoordinateQuery(
 	measurement := influxdb.MeasurementNameFromQuery(query)
 	key := coretypes.NewKey(db, measurement)
 
+	c.logger.Debug(
+		"Coordinating query",
+		zap.String("db", db),
+		zap.String("node", c.cfg.NodeID),
+		zap.String("query", query),
+	)
+
 	// get the replicas this key should use
 	nodes := c.cluster.GetNodesRanked(key.String())
 	if len(nodes) < c.cfg.NumberOfReplicas {
@@ -83,6 +84,7 @@ func (c *Chronos) fsmCoordinateQuery(
 	resultsChan := make(chan fsmQueryResult)
 	for _, node := range nodes {
 		c.logger.Debug("Querying node", zap.String("node", node))
+		// TODO: add key information
 		go c.fsmForwardQuery(node, uri, form, resultsChan)
 	}
 
@@ -103,6 +105,7 @@ func (c *Chronos) fsmCoordinateQuery(
 		}
 	}
 
+	// TODO: this can be greatly improved (we also check for quorum on init)
 	// make sure we have quorum, i.e., enough total nodes and at least read_quorum equal responses
 	if len(results) < c.cfg.ReadQuorum {
 		return http.StatusInternalServerError, []byte("not enough nodes")

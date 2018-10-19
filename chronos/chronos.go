@@ -268,6 +268,11 @@ func (c *Chronos) DropDB(uri string, form url.Values, db string) (string, error)
 }
 
 func (c *Chronos) Write(uri string, form url.Values, payload []byte) (int, []byte) {
+	// no writing metrics while initializing
+	if c.initializing {
+		return http.StatusServiceUnavailable, []byte("initializing")
+	}
+
 	// if dealing with a hinted handoff or key transfer we need to put the node in recovery mode
 	c.checkAndSetRecoveryMode(form)
 
@@ -289,6 +294,11 @@ func (c *Chronos) Write(uri string, form url.Values, payload []byte) (int, []byt
 }
 
 func (c *Chronos) Query(uri string, form url.Values) (int, []byte) {
+	// no querying metrics while initializing
+	if c.initializing {
+		return http.StatusServiceUnavailable, []byte("initializing")
+	}
+
 	return c.fsmStartQuery(uri, form)
 }
 
@@ -348,6 +358,11 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 
 // return true iff in recovery
 func (c *Chronos) isRecovering(key *coretypes.Key) bool {
+	// don't even try to access the map
+	if key == nil {
+		return false
+	}
+
 	c.recoveryLock.RLock()
 	_, ok := c.recovering[key]
 	c.recoveryLock.RUnlock()
@@ -360,7 +375,7 @@ func (c *Chronos) isRecovering(key *coretypes.Key) bool {
 func (c *Chronos) checkAndSetRecoveryMode(form url.Values) {
 	if c.requestIsHintedHandoff(form) || c.requestIsKeyTransfer(form) {
 		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
-		key := c.getKeyFromURL(form)
+		key := getKeyFromURL(form)
 		c.logger.Info("Putting node in recovery mode", zap.String("key", key.String()))
 		c.recoveryLock.Lock()
 		c.recovering[key] = time.Now()
