@@ -68,6 +68,6 @@ func (c *Chronos) requestIsKeyTransfer(form url.Values) bool {
 	return form.Get(qsTransfer) == "true"
 }
 
-func (c *Chronos) getKeyFromURL(form url.Values) *coretypes.Key {
+func getKeyFromURL(form url.Values) *coretypes.Key {
 	return coretypes.KeyFromString(form.Get("key"))
 }
