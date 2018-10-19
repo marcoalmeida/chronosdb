@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const delimiter string = "-"
+const keyDelimiter string = "-"
 
 type Key struct {
 	DB          string `json:"database"`
@@ -20,11 +20,11 @@ func NewKey(db string, measurement string) *Key {
 }
 
 func (k *Key) String() string {
-	return fmt.Sprintf("%v%s%v", k.DB, delimiter, k.Measurement)
+	return fmt.Sprintf("%v%s%v", k.DB, keyDelimiter, k.Measurement)
 }
 
 func KeyFromString(k string) *Key {
-	parts := strings.Split(k, delimiter)
+	parts := strings.Split(k, keyDelimiter)
 	return &Key{
 		DB:          parts[0],
 		Measurement: parts[1],
