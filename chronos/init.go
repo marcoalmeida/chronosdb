@@ -56,6 +56,7 @@ func (c *Chronos) fetchRemoteDBs() ([]string, error) {
 		}
 
 		c.logger.Debug("Fetching remote DBs", zap.String("node", node))
+		// TODO: the gossip protocol does not seem like the right place for this operation. move here?
 		dbs, err := c.gossip.GetDBs(node)
 		if err != nil {
 			c.logger.Error("Failed to fetch remote DBs", zap.String("node", node), zap.Error(err))
