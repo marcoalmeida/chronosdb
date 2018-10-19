@@ -26,15 +26,11 @@ type Chronos struct {
 	intentLog  *ilog.Cfg
 	httpClient *http.Client
 	influxDB   *influxdb.InfluxDB
-	// node is still initializing
-	isInitializing bool
-	// receiving data from a hinted handoff or key transfer
-	inRecovery map[*coretypes.Key]time.Time
-	// lastRecoveryTimestamp map[*coretypes.Key]time.Time
+	// node is initializing
+	initializing bool
+	// last time a key was received (replayed from an intent log, bootstrapping, or re-balancing)
+	recovering   map[*coretypes.Key]time.Time
 	recoveryLock sync.RWMutex
-	//// keep track of keys being transferred
-	//keyRecvTimestamp map[*coretypes.Key]time.Time
-	//keyRecvLock      sync.RWMutex
 }
 
 func New(cfg *config.ChronosCfg, logger *zap.Logger) *Chronos {
@@ -52,49 +48,37 @@ func New(cfg *config.ChronosCfg, logger *zap.Logger) *Chronos {
 	httpClient := shared.NewHTTPClient(cfg.ConnectTimeout, cfg.ClientTimeout)
 
 	return &Chronos{
-		cfg:       cfg,
-		cluster:   cluster,
-		gossip:    gossip.New(cfg.Port, httpClient, cfg.MaxRetries, logger),
-		intentLog: ilog.New(cfg.DataDirectory, logger),
-		// always start in recovery mode to make sure we give it enough time for intentLog to start replaying or
-		// key transfer operations to begin before accepting queries
-		// the recovery grace period should be (2x?) higher than the intentLog handoff interval to make sure we don't exit
-		// recovery mode *before* intentLog start to be replayed
-		isInitializing: true,
-		inRecovery:     make(map[*coretypes.Key]time.Time, 0),
-		// lastRecoveryTimestamp: make(map[*coretypes.Key]time.Time, 0),
-		// TODO: isn't there a cleaner way of doing this?
-		// // keep track of key transfer operations
-		// keyRecvTimestamp: make(map[*coretypes.Key]time.Time, 0),
-		// TODO: this should be part of the bootstrap process and probably not even in the struct
-		// // if the node is not initializing, the first function call will update this value
-		// isInitializing: true,
-		logger:     logger,
-		httpClient: httpClient,
-		influxDB:   influxdb.New(&cfg.InfluxDB, logger),
+		cfg:          cfg,
+		cluster:      cluster,
+		gossip:       gossip.New(cfg.Port, httpClient, cfg.MaxRetries, logger),
+		intentLog:    ilog.New(cfg.DataDirectory, logger),
+		initializing: true,
+		recovering:   make(map[*coretypes.Key]time.Time, 0),
+		logger:       logger,
+		httpClient:   httpClient,
+		influxDB:     influxdb.New(&cfg.InfluxDB, logger),
 	}
 }
 
 func (c *Chronos) Start() {
-	// cleanup intentLog: make sure we don't have any dangling intentLog (i.e., handoff started but was interrupted) and
-	// delete stale intentLog (i.e., intended for nodes that are no longer part of the cluster)
+	// cleanup intentLog: make sure we don't have any dangling entries (i.e., replay started but was interrupted)
 	c.intentLog.RestoreDangling()
+	// delete stale intent log entries (i.e., intended for nodes that are no longer part of the cluster)
 	c.intentLog.RemoveStale(c.cluster.GetAllNodes())
 
-	// initialize the node -- create all DBs
-	// it needs to be a background task so that New() returns leaving ChronosDB operating in a normal way and
-	// accepting all write requests
-	//
-	// the node stays in recovery mode while it is initializing
+	// all of the following need to be background tasks so that New()
+	// returns immediately, leaving ChronosDB operating and accepting requests
+
+	// initialize the node -- create all DBs, users, ...
 	go c.initialize()
-	// replay all entries in the intent log continuously in the background
+	// continuously replay all entries in the intent log
 	go c.replayIntentLog()
 	// TODO: this could/should be something that's explicitly called when a new node is added or a request to
 	// rebalance comes in
 	// // background task to push local keys to other nodes
 	// go chronos.transferKeys()
 	// background task to check for the last write in recover mode and exit it if past the grace period (and not
-	// isInitializing)
+	// initializing)
 	go c.checkAndExitRecoveryMode()
 }
 
@@ -162,8 +146,8 @@ func (c *Chronos) replayIntentLog() {
 
 func (c *Chronos) NodeStatus() *responsetypes.NodeStatus {
 	return &responsetypes.NodeStatus{
-		Initializing: c.isInitializing,
-		Recovering:   c.inRecovery,
+		Initializing: c.initializing,
+		Recovering:   c.recovering,
 	}
 }
 
@@ -365,7 +349,7 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 // return true iff in recovery
 func (c *Chronos) isRecovering(key *coretypes.Key) bool {
 	c.recoveryLock.RLock()
-	_, ok := c.inRecovery[key]
+	_, ok := c.recovering[key]
 	c.recoveryLock.RUnlock()
 
 	return ok
@@ -379,7 +363,7 @@ func (c *Chronos) checkAndSetRecoveryMode(form url.Values) {
 		key := c.getKeyFromURL(form)
 		c.logger.Info("Putting node in recovery mode", zap.String("key", key.String()))
 		c.recoveryLock.Lock()
-		c.inRecovery[key] = time.Now()
+		c.recovering[key] = time.Now()
 		c.recoveryLock.Unlock()
 	}
 }
@@ -387,12 +371,12 @@ func (c *Chronos) checkAndSetRecoveryMode(form url.Values) {
 // run in the background, continuously checking for the latest recovery timestamp; exit recovery mode if
 // RecoveryGracePeriod seconds or more have passed since the last hint was replayed
 //
-// while isInitializing a new node we should also keep it in recovery mode until that task is completed
+// while initializing a new node we should also keep it in recovery mode until that task is completed
 func (c *Chronos) checkAndExitRecoveryMode() {
 	c.logger.Info("Starting background task for exiting recovery mode")
 
 	// block indefinitely while the node is initializing
-	for c.isInitializing {
+	for c.initializing {
 		c.logger.Debug("Delaying exiting recovery mode while initializing")
 		time.Sleep(time.Second * 3)
 	}
@@ -401,7 +385,7 @@ func (c *Chronos) checkAndExitRecoveryMode() {
 		done := make([]*coretypes.Key, 0)
 
 		c.recoveryLock.RLock()
-		for k, t := range c.inRecovery {
+		for k, t := range c.recovering {
 			if time.Since(t) >= (time.Second * time.Duration(c.cfg.RecoveryGracePeriod)) {
 				done = append(done, k)
 			}
@@ -411,7 +395,7 @@ func (c *Chronos) checkAndExitRecoveryMode() {
 		for _, k := range done {
 			c.logger.Debug("Exiting recovery mode", zap.String("key", k.String()))
 			c.recoveryLock.Lock()
-			delete(c.inRecovery, k)
+			delete(c.recovering, k)
 			c.recoveryLock.Unlock()
 		}
 
@@ -429,7 +413,7 @@ func (c *Chronos) checkAndExitRecoveryMode() {
 // initiates and then stops/fails midway through it
 //func (d *Chronos) transferKeys() {
 //	// block indefinitely while the node is initializing
-//	for d.isInitializing {
+//	for d.initializing {
 //		d.logger.Debug("Delaying key transfer while initializing")
 //		time.Sleep(time.Second * 3)
 //	}
@@ -437,8 +421,8 @@ func (c *Chronos) checkAndExitRecoveryMode() {
 //	d.logger.Info("Starting background task for transferring keys")
 //	for {
 //		// don't transfer if receiving
-//		for d.keyRecvPending(nil) || d.isRecovering() {
-//			d.logger.Debug("Delaying key transfer while isRecovering and/or receiving keys")
+//		for d.keyRecvPending(nil) || d.recovering() {
+//			d.logger.Debug("Delaying key transfer while recovering and/or receiving keys")
 //			time.Sleep(time.Second * 3)
 //		}
 //		// all nodes that are missing a given key

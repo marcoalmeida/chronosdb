@@ -17,10 +17,10 @@ func (c *Chronos) initialize() {
 	// returning after a prolonged outage during which DBs were created, an attempt at merging clusters, ...
 	// TODO: create users and access control rules
 
-	c.isInitializing = true
+	c.initializing = true
 	c.logger.Debug("Initialization process: creating DBs")
 	// don't go anywhere until all DBs have been created
-	for c.isInitializing {
+	for c.initializing {
 		dbs, err := c.fetchRemoteDBs()
 		if err != nil {
 			c.logger.Error("Failed to get remote list of databases", zap.Error(err))
@@ -37,7 +37,7 @@ func (c *Chronos) initialize() {
 		}
 
 		c.logger.Info("Initialization process completed")
-		c.isInitializing = false
+		c.initializing = false
 	}
 }
 
