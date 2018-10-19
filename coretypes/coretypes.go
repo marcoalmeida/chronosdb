@@ -12,6 +12,10 @@ type Key struct {
 	Measurement string `json:"measurement"`
 }
 
+func (k *Key) String() string {
+	return fmt.Sprintf("%v%s%v", k.DB, keyDelimiter, k.Measurement)
+}
+
 func NewKey(db string, measurement string) *Key {
 	return &Key{
 		DB:          db,
@@ -19,12 +23,12 @@ func NewKey(db string, measurement string) *Key {
 	}
 }
 
-func (k *Key) String() string {
-	return fmt.Sprintf("%v%s%v", k.DB, keyDelimiter, k.Measurement)
-}
-
 func KeyFromString(k string) *Key {
 	parts := strings.Split(k, keyDelimiter)
+	if len(parts) != 2 {
+		return nil
+	}
+
 	return &Key{
 		DB:          parts[0],
 		Measurement: parts[1],
