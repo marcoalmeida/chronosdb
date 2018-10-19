@@ -15,6 +15,8 @@ const (
 	qsKey      = "xdbKey"
 )
 
+// TODO: use HTTP headers to pass this type of information, not the query string (cleaner, less intrusive,
+//  more transparent proxying to InfluxDB)
 // return true iff the current node is coordinating this request, i.e., the `forward` parameter has not been set
 func (c *Chronos) nodeIsCoordinator(form url.Values) bool {
 	return form.Get(qsForward) == ""
