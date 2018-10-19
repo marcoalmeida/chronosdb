@@ -1,13 +1,13 @@
 package chronos
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/thumbtack/go/images/errors"
 	"go.uber.org/zap"
 )
 
