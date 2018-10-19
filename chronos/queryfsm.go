@@ -18,29 +18,31 @@ type fsmQueryResult struct {
 }
 
 func (c *Chronos) fsmStartQuery(
+	headers http.Header,
 	uri string,
 	form url.Values,
 ) (int, []byte) {
 	// run the query locally and return the results
-	if !c.nodeIsCoordinator(form) {
+	if !c.nodeIsCoordinator(headers) {
 		c.logger.Debug("Running query locally",
 			zap.String("db", form.Get("db")),
 			zap.String("node", c.cfg.NodeID),
 		)
 
-		return c.fsmRunQuery(uri, form)
+		return c.fsmRunQuery(headers, uri, form)
 	}
 
 	// act as a coordinator and distribute the query among all replicas that hold the key this query is operating on
 	return c.fsmCoordinateQuery(uri, form)
 }
 
-func (c *Chronos) fsmRunQuery(uri string, form url.Values) (int, []byte) {
+func (c *Chronos) fsmRunQuery(headers http.Header, uri string, form url.Values) (int, []byte) {
 	// the key is always added by the coordinator
-	key := getKeyFromURL(form)
+	key := getKeyFromRequest(headers)
 	if key == nil {
-		// TODO: handle error
+		return http.StatusInternalServerError, []byte("key missing")
 	}
+
 	// if the node is in recovering mode for the key being queried we can't proceed
 	if c.isRecovering(key) {
 		return http.StatusServiceUnavailable, []byte("in recovery")
@@ -85,7 +87,7 @@ func (c *Chronos) fsmCoordinateQuery(
 	for _, node := range nodes {
 		c.logger.Debug("Querying node", zap.String("node", node))
 		// TODO: add key information
-		go c.fsmForwardQuery(node, uri, form, resultsChan)
+		go c.fsmForwardQuery(node, key, uri, form, resultsChan)
 	}
 
 	// collect the results
@@ -133,6 +135,7 @@ func (c *Chronos) fsmCoordinateQuery(
 
 func (c *Chronos) fsmForwardQuery(
 	node string,
+	key *coretypes.Key,
 	uri string,
 	form url.Values,
 	resultsChan chan<- fsmQueryResult,
@@ -143,10 +146,11 @@ func (c *Chronos) fsmForwardQuery(
 		zap.String("target", node),
 	)
 	u := c.createForwardURL(node, uri)
+	h := createForwardHeaders(key)
 	status, response := shared.DoPost(
 		u,
 		[]byte(form.Encode()),
-		nil,
+		h,
 		c.httpClient,
 		c.cfg.MaxRetries,
 		c.logger, "chronos.fsmForwardQuery",

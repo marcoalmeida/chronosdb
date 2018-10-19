@@ -2,6 +2,7 @@ package chronos
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
@@ -9,30 +10,29 @@ import (
 
 // query string parameters used by ChronosDB (appended to whatever InfluxDB uses for internal use)
 const (
-	qsForward  = "xdbForward"
-	qsHandoff  = "xdbHandoff"
-	qsTransfer = "xdbTransfer"
-	qsKey      = "xdbKey"
+	headerXForward = "X-ChronosDB-Forward"
+	headerXKey     = "X-ChronosDB-Key"
+	qsHandoff      = "xdbHandoff"
+	qsTransfer     = "xdbTransfer"
+	qsKey          = "xdbKey"
 )
 
-// TODO: use HTTP headers to pass this type of information, not the query string (cleaner, less intrusive,
-//  more transparent proxying to InfluxDB)
-// return true iff the current node is coordinating this request, i.e., the `forward` parameter has not been set
-func (c *Chronos) nodeIsCoordinator(form url.Values) bool {
-	return form.Get(qsForward) == ""
+// return true iff the current node is coordinating this request, i.e., the `forward` header has not been set
+func (c *Chronos) nodeIsCoordinator(headers http.Header) bool {
+	return headers.Get(headerXForward) == ""
 }
 
 // generate a URL to be used for forwarding a request
 func (c *Chronos) createForwardURL(node string, uri string) string {
-	u, err := url.Parse(fmt.Sprintf("http://%s:%c%s", node, c.cfg.Port, uri))
-	if err != nil {
-		return ""
-	}
-	q := u.Query()
-	q.Set(qsForward, "false")
-	u.RawQuery = q.Encode()
+	return fmt.Sprintf("http://%s:%c%s", node, c.cfg.Port, uri)
+}
 
-	return u.String()
+func createForwardHeaders(key *coretypes.Key) http.Header {
+	headers := http.Header{}
+	headers.Set(headerXForward, "true")
+	headers.Set(headerXKey, key.String())
+
+	return headers
 }
 
 // expand and existing URL to include the internal query string marker that signals a handoff
@@ -72,4 +72,8 @@ func (c *Chronos) requestIsKeyTransfer(form url.Values) bool {
 
 func getKeyFromURL(form url.Values) *coretypes.Key {
 	return coretypes.KeyFromString(form.Get("key"))
+}
+
+func getKeyFromRequest(headers http.Header) *coretypes.Key {
+	return coretypes.KeyFromString(headers.Get(headerXKey))
 }

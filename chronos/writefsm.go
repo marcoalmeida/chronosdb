@@ -1,6 +1,7 @@
 package chronos
 
 import (
+	"net/http"
 	"net/url"
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
@@ -27,12 +28,12 @@ type fsmForwardWriteResult struct {
 	response   []byte
 }
 
-func (c *Chronos) fsmStartWrite(uri string, form url.Values, payload []byte) (int, []byte) {
+func (c *Chronos) fsmStartWrite(headers http.Header, uri string, form url.Values, payload []byte) (int, []byte) {
 	// we need the DB name for a number of things, might as well extract it now and pass it along to avoid repeating
 	// the same call
 	db := influxdb.DBNameFromURL(form)
 
-	if c.nodeIsCoordinator(form) {
+	if c.nodeIsCoordinator(headers) {
 		c.logger.Debug("Coordinating write", zap.String("db", db), zap.String("node", c.cfg.NodeID))
 		// start one coordinating task per measurement
 		resultsChan := make(chan fsmWriteResult)

@@ -170,7 +170,13 @@ func (c *Chronos) GetDBs() (*responsetypes.GetDBs, error) {
 }
 
 // try to create (or drop) and DB on all nodes in the cluster; on failure return the node that failed to comply
-func (c *Chronos) createOrDropDB(uri string, form url.Values, db string, action string) (string, error) {
+func (c *Chronos) createOrDropDB(
+	headers http.Header,
+	uri string,
+	form url.Values,
+	db string,
+	action string,
+) (string, error) {
 	var err error
 
 	// regardless of whether or not being a coordinator, create the DB locally
@@ -201,7 +207,7 @@ func (c *Chronos) createOrDropDB(uri string, form url.Values, db string, action 
 	}
 
 	// if acting as coordinator, i.e., this request was not forwarded, forward it to all nodes (but itself)
-	if c.nodeIsCoordinator(form) {
+	if c.nodeIsCoordinator(headers) {
 		var status int
 		var response []byte
 
@@ -243,7 +249,7 @@ func (c *Chronos) createOrDropDB(uri string, form url.Values, db string, action 
 					)
 					// try to rollback
 					if action == "CREATE" {
-						node, err := c.DropDB(uri, form, db)
+						node, err := c.DropDB(headers, uri, form, db)
 						if err != nil {
 							c.logger.Error("Failed to rollback CREATE DB", zap.String("node", node))
 						}
@@ -259,15 +265,15 @@ func (c *Chronos) createOrDropDB(uri string, form url.Values, db string, action 
 	return "", nil
 }
 
-func (c *Chronos) CreateDB(uri string, form url.Values, db string) (string, error) {
-	return c.createOrDropDB(uri, form, db, "CREATE")
+func (c *Chronos) CreateDB(headers http.Header, uri string, form url.Values, db string) (string, error) {
+	return c.createOrDropDB(headers, uri, form, db, "CREATE")
 }
 
-func (c *Chronos) DropDB(uri string, form url.Values, db string) (string, error) {
-	return c.createOrDropDB(uri, form, db, "DROP")
+func (c *Chronos) DropDB(headers http.Header, uri string, form url.Values, db string) (string, error) {
+	return c.createOrDropDB(headers, uri, form, db, "DROP")
 }
 
-func (c *Chronos) Write(uri string, form url.Values, payload []byte) (int, []byte) {
+func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payload []byte) (int, []byte) {
 	// no writing metrics while initializing
 	if c.initializing {
 		return http.StatusServiceUnavailable, []byte("initializing")
@@ -290,16 +296,16 @@ func (c *Chronos) Write(uri string, form url.Values, payload []byte) (int, []byt
 		//c.keyRecvLock.Unlock()
 	}
 
-	return c.fsmStartWrite(uri, form, payload)
+	return c.fsmStartWrite(headers, uri, form, payload)
 }
 
-func (c *Chronos) Query(uri string, form url.Values) (int, []byte) {
+func (c *Chronos) Query(headers http.Header, uri string, form url.Values) (int, []byte) {
 	// no querying metrics while initializing
 	if c.initializing {
 		return http.StatusServiceUnavailable, []byte("initializing")
 	}
 
-	return c.fsmStartQuery(uri, form)
+	return c.fsmStartQuery(headers, uri, form)
 }
 
 // remove the marker that indicates a key transfer is in progress

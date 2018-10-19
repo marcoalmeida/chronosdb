@@ -92,9 +92,9 @@ func dbHandler(app *app) http.HandlerFunc {
 			var err error
 
 			if r.Method == "PUT" {
-				node, err = app.chronos.CreateDB(r.URL.RequestURI(), r.Form, db)
+				node, err = app.chronos.CreateDB(r.Header, r.URL.RequestURI(), r.Form, db)
 			} else {
-				node, err = app.chronos.DropDB(r.URL.RequestURI(), r.Form, db)
+				node, err = app.chronos.DropDB(r.Header, r.URL.RequestURI(), r.Form, db)
 			}
 			if err != nil {
 				response := responsetypes.Error{
@@ -181,7 +181,7 @@ func writeHandler(app *app) http.HandlerFunc {
 			app.logger.Error("Failed to read request body", zap.Error(err))
 			respondJSON(w, responsetypes.Error{Message: err.Error()}, http.StatusBadRequest)
 		} else {
-			status, response := app.chronos.Write(r.URL.RequestURI(), r.URL.Query(), payload)
+			status, response := app.chronos.Write(r.Header, r.URL.RequestURI(), r.URL.Query(), payload)
 			respondPassThrough(w, response, status)
 		}
 	}
@@ -207,7 +207,7 @@ func queryHandler(app *app) http.HandlerFunc {
 			return
 		}
 
-		status, response := app.chronos.Query(r.URL.RequestURI(), r.Form)
+		status, response := app.chronos.Query(r.Header, r.URL.RequestURI(), r.Form)
 		respondPassThrough(w, response, status)
 	}
 }
