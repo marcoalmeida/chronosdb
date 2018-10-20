@@ -24,7 +24,7 @@ func (c *Chronos) nodeIsCoordinator(headers http.Header) bool {
 
 // generate a URL to be used for forwarding a request
 func (c *Chronos) createForwardURL(node string, uri string) string {
-	return fmt.Sprintf("http://%s:%c%s", node, c.cfg.Port, uri)
+	return fmt.Sprintf("http://%s:%d%s", node, c.cfg.Port, uri)
 }
 
 func createForwardHeaders(key *coretypes.Key) http.Header {
