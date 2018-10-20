@@ -30,7 +30,9 @@ func (c *Chronos) createForwardURL(node string, uri string) string {
 func createForwardHeaders(key *coretypes.Key) http.Header {
 	headers := http.Header{}
 	headers.Set(headerXForward, "true")
-	headers.Set(headerXKey, key.String())
+	if key != nil {
+		headers.Set(headerXKey, key.String())
+	}
 
 	return headers
 }
