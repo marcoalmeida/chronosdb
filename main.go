@@ -87,8 +87,10 @@ func main() {
 		logger:  logger,
 		chronos: chronos.New(cfg, logger),
 	}
-	// start Chronos-related tasks (these run in the background and do not block)
+
+	// start ChronosDB-related tasks (these run in the background and do not block)
 	app.chronos.Start()
+
 	// listen and serve ChronosDB (most of the Chronos-related tasks above )
 	serve(app)
 }

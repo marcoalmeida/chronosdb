@@ -390,17 +390,9 @@ func (c *Chronos) checkAndSetRecoveryMode(form url.Values) {
 }
 
 // run in the background, continuously checking for the latest recovery timestamp; exit recovery mode if
-// RecoveryGracePeriod seconds or more have passed since the last hint was replayed
-//
-// while initializing a new node we should also keep it in recovery mode until that task is completed
+// RecoveryGracePeriod seconds or more have passed since the last entry in the intent log was replayed
 func (c *Chronos) checkAndExitRecoveryMode() {
 	c.logger.Info("Starting background task for exiting recovery mode")
-
-	// block indefinitely while the node is initializing
-	for c.initializing {
-		c.logger.Debug("Delaying exiting recovery mode while initializing")
-		time.Sleep(time.Second * 3)
-	}
 
 	for {
 		done := make([]*coretypes.Key, 0)
