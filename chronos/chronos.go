@@ -214,13 +214,14 @@ func (c *Chronos) createOrDropDB(
 		for _, node := range c.cluster.GetAllNodes() {
 			if node != c.cfg.NodeID {
 				u := c.createForwardURL(node, uri)
+				h := createForwardHeaders(nil)
 				c.logger.Debug("Forwarding request", zap.String("url", u), zap.String("action", action))
 				switch action {
 				case "DROP":
 					status, response = shared.DoDelete(
 						u,
 						nil,
-						nil,
+						h,
 						c.httpClient,
 						c.cfg.MaxRetries,
 						c.logger,
@@ -230,7 +231,7 @@ func (c *Chronos) createOrDropDB(
 					status, response = shared.DoPut(
 						u,
 						nil,
-						nil,
+						h,
 						c.httpClient,
 						c.cfg.MaxRetries,
 						c.logger,
