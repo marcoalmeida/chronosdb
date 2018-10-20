@@ -23,7 +23,7 @@ type Chronos struct {
 	logger     *zap.Logger
 	cluster    hrw.Nodes
 	gossip     *gossip.Gossip
-	intentLog  *ilog.Cfg
+	intentLog  *ilog.ILog
 	httpClient *http.Client
 	influxDB   *influxdb.InfluxDB
 	// node is initializing

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
+	"github.com/marcoalmeida/chronosdb/mapsort"
 	"go.uber.org/zap"
 )
 
@@ -61,42 +62,45 @@ type Entry struct {
 	filePath string
 }
 
-type Cfg struct {
-	dataDir string
-	logger  *zap.Logger
+type ILog struct {
+	dataDir         string
+	replicaPriority map[string]int
+	logger          *zap.Logger
 }
 
-func New(dataDir string, logger *zap.Logger) *Cfg {
-	return &Cfg{
+func New(dataDir string, logger *zap.Logger) *ILog {
+	return &ILog{
 		dataDir: dataDir,
-		logger:  logger,
+		// assign a priority to each replica for which there's an intent log entry (higher ==> lower priority)
+		replicaPriority: make(map[string]int, 0),
+		logger:          logger,
 	}
 }
 
-func (h *Cfg) intentLogRoot() string {
-	return fmt.Sprintf("%s/%s", h.dataDir, intentLogDirectoryName)
+func (i *ILog) intentLogRoot() string {
+	return fmt.Sprintf("%s/%s", i.dataDir, intentLogDirectoryName)
 }
 
-func (h *Cfg) getPath(node string, dir string) string {
-	return filepath.Join(h.intentLogRoot(), node, dir)
+func (i *ILog) getPath(node string, dir string) string {
+	return filepath.Join(i.intentLogRoot(), node, dir)
 }
 
-func (h *Cfg) tmpDir(node string) string {
-	return h.getPath(node, tmpDirectoryName)
+func (i *ILog) tmpDir(node string) string {
+	return i.getPath(node, tmpDirectoryName)
 }
 
-func (h *Cfg) newDir(node string) string {
-	return h.getPath(node, newDirectoryName)
+func (i *ILog) newDir(node string) string {
+	return i.getPath(node, newDirectoryName)
 }
 
-func (h *Cfg) processingDir(node string) string {
-	return h.getPath(node, processingDirectoryName)
+func (i *ILog) processingDir(node string) string {
+	return i.getPath(node, processingDirectoryName)
 }
 
 // Add writes a new entry to the intent log.
-func (h *Cfg) Add(entry *Entry) error {
-	tmpDir := h.tmpDir(entry.Node)
-	newDir := h.newDir(entry.Node)
+func (i *ILog) Add(entry *Entry) error {
+	tmpDir := i.tmpDir(entry.Node)
+	newDir := i.newDir(entry.Node)
 
 	if err := ensureDirectory(tmpDir); err != nil {
 		return err
@@ -147,16 +151,25 @@ func (h *Cfg) Add(entry *Entry) error {
 }
 
 // TODO: sort by time stamp and deliver older entries first
-// Fetch finds and returns an entry (oldest one first) that should be replayed;
-func (h *Cfg) Fetch() (*Entry, error) {
-	// list nodes
-	nodes, err := ioutil.ReadDir(h.intentLogRoot())
+// Fetch finds and returns an intent log entry (oldest one first) that should be replayed
+func (i *ILog) Fetch() (*Entry, error) {
+	// list dirs -- each one is a node
+	dirs, err := ioutil.ReadDir(i.intentLogRoot())
 	if err != nil {
 		return nil, err
 	}
 
-	for _, n := range nodes {
-		path := h.newDir(n.Name())
+	// make sure every node has a priority assigned
+	for _, d := range dirs {
+		node := d.Name()
+		if _, ok := i.replicaPriority[node]; !ok {
+			i.replicaPriority[node] = 0
+		}
+	}
+
+	// sort the replicas by ascending priority order
+	for _, node := range mapsort.ByValue(i.replicaPriority, true) {
+		path := i.newDir(node)
 		entries, err := ioutil.ReadDir(path)
 		if err != nil {
 			return nil, err
@@ -165,7 +178,7 @@ func (h *Cfg) Fetch() (*Entry, error) {
 		if len(entries) > 0 {
 			f := entries[0]
 			// move to "processing"
-			processingDir := h.processingDir(n.Name())
+			processingDir := i.processingDir(node)
 			if err := ensureDirectory(processingDir); err != nil {
 				return nil, err
 			}
@@ -214,18 +227,18 @@ func (h *Cfg) Fetch() (*Entry, error) {
 }
 
 // Remove deletes a given entry from the local file system
-func (h *Cfg) Remove(contents *Entry) error {
-	h.logger.Debug("Removing already replayed entry", zap.String("file", contents.filePath))
+func (i *ILog) Remove(contents *Entry) error {
+	i.logger.Debug("Removing already replayed entry", zap.String("file", contents.filePath))
 	return os.Remove(contents.filePath)
 }
 
 // RemoveStale removes entries intended to nodes that are no longer part of the cluster
-func (h *Cfg) RemoveStale(cluster []string) {
-	h.logger.Info("Starting the removal of stale intent log entries...")
+func (i *ILog) RemoveStale(cluster []string) {
+	i.logger.Info("Starting the removal of stale intent log entries...")
 
-	targets, err := ioutil.ReadDir(h.intentLogRoot())
+	targets, err := ioutil.ReadDir(i.intentLogRoot())
 	if err != nil {
-		h.logger.Error("Failed to open the intent log", zap.Error(err))
+		i.logger.Error("Failed to open the intent log", zap.Error(err))
 		return
 	}
 
@@ -238,15 +251,15 @@ func (h *Cfg) RemoveStale(cluster []string) {
 			}
 		}
 		if !exists {
-			path := filepath.Join(h.intentLogRoot(), t.Name())
-			h.logger.Info(
+			path := filepath.Join(i.intentLogRoot(), t.Name())
+			i.logger.Info(
 				"Removing entry",
 				zap.String("node", t.Name()),
 				zap.String("path", path),
 			)
 			// actually delete the file
 			if err := os.Remove(path); err != nil {
-				h.logger.Error(
+				i.logger.Error(
 					"Failed to Remove entry",
 					zap.String("node", t.Name()),
 					zap.String("path", path),
@@ -256,68 +269,75 @@ func (h *Cfg) RemoveStale(cluster []string) {
 		}
 	}
 
-	h.logger.Info("Finished the removal of stale intent log entries...")
+	i.logger.Info("Finished the removal of stale intent log entries...")
 }
 
 // RestoreDangling finds and restores back to the log entries that were in the process of being replayed, but for
 // some reason the process was interrupted before successfully completed.
-func (h *Cfg) RestoreDangling() {
+func (i *ILog) RestoreDangling() {
 	// move dangling files from the `processing` directory back to `new` for re-processing
-	h.logger.Info("Starting recovery of dangling intent log entries...")
+	i.logger.Info("Starting recovery of dangling intent log entries...")
 
-	nodes, err := ioutil.ReadDir(h.intentLogRoot())
+	nodes, err := ioutil.ReadDir(i.intentLogRoot())
 	if err != nil {
-		h.logger.Error("Failed to open the intent log", zap.Error(err))
+		i.logger.Error("Failed to read the intent log directory", zap.Error(err))
 		return
 	}
 
 	for _, node := range nodes {
 		// there may not be a processing directory, in which case there's nothing to try to recover
-		if _, err := os.Stat(h.processingDir(node.Name())); os.IsNotExist(err) {
+		if _, err := os.Stat(i.processingDir(node.Name())); os.IsNotExist(err) {
 			continue
 		}
 
-		entries, err := ioutil.ReadDir(h.processingDir(node.Name()))
+		entries, err := ioutil.ReadDir(i.processingDir(node.Name()))
 		if err != nil {
-			h.logger.Error("Failed to list intent log entries", zap.Error(err))
+			i.logger.Error("Failed to list intent log entries", zap.Error(err))
 			return
 		}
 
 		for _, entry := range entries {
-			src := h.processingDir(node.Name()) + "/" + entry.Name()
-			dst := h.newDir(node.Name()) + "/" + entry.Name()
-			h.logger.Info(
+			src := i.processingDir(node.Name()) + "/" + entry.Name()
+			dst := i.newDir(node.Name()) + "/" + entry.Name()
+			i.logger.Info(
 				"Moving dangling intent log entry",
 				zap.String("src", src),
 				zap.String("dst", dst))
 			err := os.Rename(src, dst)
 			if err != nil {
-				h.logger.Error("Failed to move intent log entry", zap.Error(err))
+				i.logger.Error("Failed to move intent log entry", zap.Error(err))
 			}
 		}
 	}
 
-	h.logger.Info("Finished recovery of dangling intent log entries...")
+	i.logger.Info("Finished recovery of dangling intent log entries...")
 }
 
 // ReAdd changes the state of a log entry from being processed to available for processing
-func (h *Cfg) ReAdd(entry *Entry) {
-	// TODO: add a parameter to reduce the priority of the node (or just make it the default behavior)
-	// TODO: add the notion of priority to Fetch so that a given order (chronological + healthy nodes) is respected
-	//  otherwise it's possible to continuously fetch an entry destined to a failed replica, put it back,
-	//  fetch another one, ...
+func (i *ILog) ReAdd(entry *Entry) {
+	// lower the priority of the node to which this entry was intended (or initialize it)
+	if _, ok := i.replicaPriority[entry.Node]; ok {
+		i.replicaPriority[entry.Node]++
+	} else {
+		i.replicaPriority[entry.Node] = 0
+	}
+	i.logger.Debug(
+		"Updated intent log priority",
+		zap.String("node", entry.Node),
+		zap.Int("priority", i.replicaPriority[entry.Node]),
+	)
 
-	// move from `processing` to `new`
+	// move the entry from `processing` to `new`
 	src := entry.filePath
 	splitPath := strings.Split(src, "/")
 	entryName := splitPath[len(splitPath)-1]
 	// the name is generated using nanoseconds from Epoch and this one in particular will be in the past so it's
 	// impossible to have a collision and this operation is safe
-	dst := h.newDir(entry.Node) + "/" + entryName
+	dst := i.newDir(entry.Node) + "/" + entryName
 
 	err := os.Rename(src, dst)
 	if err != nil {
-		h.logger.Error("Failed to reset chunk", zap.Error(err))
+		i.logger.Error("Failed to reset chunk", zap.Error(err))
 	}
 }
 

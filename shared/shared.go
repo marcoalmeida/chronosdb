@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Min returns the smallest of two integers
 func Min(a int, b int) int {
 	if a < b {
 		return a
