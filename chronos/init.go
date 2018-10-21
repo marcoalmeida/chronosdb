@@ -24,20 +24,20 @@ func (c *Chronos) initialize() {
 		dbs, err := c.fetchRemoteDBs()
 		if err != nil {
 			c.logger.Error("Failed to get remote list of databases", zap.Error(err))
-			// sleep for a period of time and then repeat until we successfully get the list of existing DBs
-			r := rand.Intn(c.cfg.ReplayInterval)
-			time.Sleep(time.Duration(r) * time.Second)
-			continue
-		}
+		} else {
+			c.logger.Debug("Received list of databases", zap.Strings("databases", dbs))
+			err = c.createDBs(dbs)
+			if err != nil {
+				c.logger.Fatal("Failed to create DB while initializing", zap.Error(err))
+			} else {
+				c.logger.Info("Initialization process completed")
+				c.initializing = false
 
-		c.logger.Debug("Received list of databases", zap.Strings("databases", dbs))
-		err = c.createDBs(dbs)
-		if err != nil {
-			c.logger.Fatal("Failed to create DB while initializing", zap.Error(err))
+			}
 		}
-
-		c.logger.Info("Initialization process completed")
-		c.initializing = false
+		// sleep for a period of time and then repeat until we successfully get and create all existing DBs
+		r := rand.Intn(c.cfg.ReplayInterval)
+		time.Sleep(time.Duration(r) * time.Second)
 	}
 }
 
