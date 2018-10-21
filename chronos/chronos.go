@@ -66,20 +66,21 @@ func (c *Chronos) Start() {
 	// delete stale intent log entries (i.e., intended for nodes that are no longer part of the cluster)
 	c.intentLog.RemoveStale(c.cluster.GetAllNodes())
 
-	// all of the following need to be background tasks so that New()
-	// returns immediately, leaving ChronosDB operating and accepting requests
+	// all of the following need to be background tasks so that Start() can return immediately
+	// without blocking the caller (which needs to listen-and-serve)
 
 	// initialize the node -- create all DBs, users, ...
 	go c.initialize()
 	// continuously replay all entries in the intent log
 	go c.replayIntentLog()
+
 	// TODO: this could/should be something that's explicitly called when a new node is added or a request to
 	// rebalance comes in
 	// // background task to push local keys to other nodes
 	// go chronos.transferKeys()
 	// background task to check for the last write in recover mode and exit it if past the grace period (and not
 	// initializing)
-	go c.checkAndExitRecoveryMode()
+	go c.checkAndExitRecovery()
 }
 
 // continuously query the Intent Log for available entries and try to replay them
@@ -280,8 +281,8 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 		return http.StatusServiceUnavailable, []byte("initializing")
 	}
 
-	// if dealing with a hinted handoff or key transfer we need to put the node in recovery mode
-	c.checkAndSetRecoveryMode(form)
+	//// if dealing with a hinted handoff or key transfer we need to put the node in recovery mode
+	//c.checkAndSetRecoveryMode(form)
 
 	// if a key is being transferred, update the tracking information
 	if c.requestIsKeyTransfer(form) {
@@ -363,60 +364,19 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 	//return false, nil
 }
 
-// return true iff in recovery
-func (c *Chronos) isRecovering(key *coretypes.Key) bool {
-	// don't even try to access the map
-	if key == nil {
-		return false
-	}
-
-	c.recoveryLock.RLock()
-	_, ok := c.recovering[key]
-	c.recoveryLock.RUnlock()
-
-	return ok
-}
-
-// if the request is either a hint being handed off or part of a key transfer, put the node in recovery mode and
-// update the timestamp (for the key being written)
-func (c *Chronos) checkAndSetRecoveryMode(form url.Values) {
-	if c.requestIsHintedHandoff(form) || c.requestIsKeyTransfer(form) {
-		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
-		key := getKeyFromURL(form)
-		c.logger.Info("Putting node in recovery mode", zap.String("key", key.String()))
-		c.recoveryLock.Lock()
-		c.recovering[key] = time.Now()
-		c.recoveryLock.Unlock()
-	}
-}
-
-// run in the background, continuously checking for the latest recovery timestamp; exit recovery mode if
-// RecoveryGracePeriod seconds or more have passed since the last entry in the intent log was replayed
-func (c *Chronos) checkAndExitRecoveryMode() {
-	c.logger.Info("Starting background task for exiting recovery mode")
-
-	for {
-		done := make([]*coretypes.Key, 0)
-
-		c.recoveryLock.RLock()
-		for k, t := range c.recovering {
-			if time.Since(t) >= (time.Second * time.Duration(c.cfg.RecoveryGracePeriod)) {
-				done = append(done, k)
-			}
-		}
-		c.recoveryLock.RUnlock()
-
-		for _, k := range done {
-			c.logger.Debug("Exiting recovery mode", zap.String("key", k.String()))
-			c.recoveryLock.Lock()
-			delete(c.recovering, k)
-			c.recoveryLock.Unlock()
-		}
-
-		c.logger.Debug("Sleeping for checking recovery mode", zap.Int("time", c.cfg.RecoveryGracePeriod))
-		time.Sleep(time.Second * time.Duration(c.cfg.RecoveryGracePeriod))
-	}
-}
+//
+//// if the request is either a hint being handed off or part of a key transfer, put the node in recovery mode and
+//// update the timestamp (for the key being written)
+//func (c *Chronos) checkAndSetRecoveryMode(form url.Values) {
+//	if c.requestIsHintedHandoff(form) || c.requestIsKeyTransfer(form) {
+//		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
+//		key := getKeyFromURL(form)
+//		c.logger.Info("Putting node in recovery mode", zap.String("key", key.String()))
+//		c.recoveryLock.Lock()
+//		c.recovering[key] = time.Now()
+//		c.recoveryLock.Unlock()
+//	}
+//}
 
 // run in the background and periodically ping all replicas that should own the same keys this node holds to confirm
 // they have it; if they don't, start to transfer them
