@@ -13,10 +13,19 @@ type Key struct {
 }
 
 func (k *Key) String() string {
+	if k == nil {
+		return ""
+	}
+
 	return fmt.Sprintf("%v%s%v", k.DB, keyDelimiter, k.Measurement)
 }
 
 func NewKey(db string, measurement string) *Key {
+	// we need both the DB and the measurement to form a key
+	if db == "" || measurement == "" {
+		return nil
+	}
+
 	return &Key{
 		DB:          db,
 		Measurement: measurement,

@@ -15,6 +15,15 @@ func TestNewKey(t *testing.T) {
 	if k1.Measurement != "m1" {
 		t.Error("Expected m1, got:", k1.Measurement)
 	}
+
+	k2 := NewKey("", "foo")
+	if k2 != nil {
+		t.Error("Expected nil, got", k2)
+	}
+
+	if k2.String() != "" {
+		t.Error("Expected an empty string, got", k2.String())
+	}
 }
 
 func TestKeyFromString(t *testing.T) {
