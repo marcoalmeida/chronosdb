@@ -67,6 +67,15 @@ type httpError struct {
 	Error string
 }
 
+// GenerateWriteURI returns an InfluxDB write endpoint for the given DB
+func GenerateWriteURI(db string) string {
+	if db == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("/write?db=%s", db)
+}
+
 func New(cfg *Cfg, logger *zap.Logger) *InfluxDB {
 	return &InfluxDB{
 		cfg:                  cfg,

@@ -3,9 +3,7 @@ package influxdb
 import (
 	"bytes"
 	"io/ioutil"
-	"net/url"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/deckarep/golang-set"
@@ -41,44 +39,44 @@ func TestSplitMeasurements(t *testing.T) {
 	}
 }
 
-func TestExtractQueries(t *testing.T) {
-	var queries []string
-
-	q0 := "SELECT \"value\" FROM \"cpu_load_short\" WHERE \"region\"='us-west'"
-	q1 := "SELECT nope"
-
-	// nothing
-	v := url.Values{}
-	queries = QueriesFromURL(v)
-	if !reflect.DeepEqual(queries, []string{}) {
-		t.Error("Expected empty list, got", queries, len(queries))
-	}
-
-	// empty string
-	v.Set("q", "")
-	queries = QueriesFromURL(v)
-	if !reflect.DeepEqual(queries, []string{}) {
-		t.Error("Expected empty list, got", queries, len(queries))
-	}
-
-	// single query, with and without terminating semi-solon
-	for _, q := range []string{q0, q0 + ";", q0 + " ; "} {
-		v.Set("q", q)
-		queries = QueriesFromURL(v)
-		if strings.TrimSpace(queries[0]) != q0 {
-			t.Error("Expected", q0, " got", queries[0])
-		}
-	}
-
-	// two queries
-	for _, q := range []string{q0 + ";" + q1, q0 + " ; " + q1} {
-		v.Set("q", q)
-		queries = QueriesFromURL(v)
-		if strings.TrimSpace(queries[0]) != q0 || strings.TrimSpace(queries[1]) != q1 {
-			t.Error("Expected", q0, "and", q1, ", got", queries[0])
-		}
-	}
-}
+//func TestExtractQueries(t *testing.T) {
+//	var queries []string
+//
+//	q0 := "SELECT \"value\" FROM \"cpu_load_short\" WHERE \"region\"='us-west'"
+//	q1 := "SELECT nope"
+//
+//	// nothing
+//	v := url.Values{}
+//	queries = QueriesFromURL(v)
+//	if !reflect.DeepEqual(queries, []string{}) {
+//		t.Error("Expected empty list, got", queries, len(queries))
+//	}
+//
+//	// empty string
+//	v.Set("q", "")
+//	queries = QueriesFromURL(v)
+//	if !reflect.DeepEqual(queries, []string{}) {
+//		t.Error("Expected empty list, got", queries, len(queries))
+//	}
+//
+//	// single query, with and without terminating semi-solon
+//	for _, q := range []string{q0, q0 + ";", q0 + " ; "} {
+//		v.Set("q", q)
+//		queries = QueriesFromURL(v)
+//		if strings.TrimSpace(queries[0]) != q0 {
+//			t.Error("Expected", q0, " got", queries[0])
+//		}
+//	}
+//
+//	// two queries
+//	for _, q := range []string{q0 + ";" + q1, q0 + " ; " + q1} {
+//		v.Set("q", q)
+//		queries = QueriesFromURL(v)
+//		if strings.TrimSpace(queries[0]) != q0 || strings.TrimSpace(queries[1]) != q1 {
+//			t.Error("Expected", q0, "and", q1, ", got", queries[0])
+//		}
+//	}
+//}
 
 func TestExtractMeasurement(t *testing.T) {
 	// empty string, broken SELECT, regular expressions
@@ -163,4 +161,17 @@ func checkLineProtocolFields(lp []byte, t *testing.T) {
 		t.Error("Matched", matches, "fields, expected to match 2")
 	}
 
+}
+
+func TestGetWriteURI(t *testing.T) {
+	empty := GenerateWriteURI("")
+	if empty != "" {
+		t.Error("Expected empty string, got", empty)
+	}
+
+	db, expected := "mydb", "/write?db=mydb"
+	uri := GenerateWriteURI(db)
+	if uri != expected {
+		t.Error("Expected", expected, "got", uri)
+	}
 }
