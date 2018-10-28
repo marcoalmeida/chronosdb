@@ -37,11 +37,13 @@ func (c *Chronos) isRecovering(key *coretypes.Key) bool {
 // run in the background, continuously checking for each key's latest recovery timestamp
 // exit recovery mode if RecoveryGracePeriod seconds or more have passed
 func (c *Chronos) checkAndExitRecovery() {
-	c.logger.Info("Starting background task for exiting recovery mode")
+	c.logger.Info("Starting background task for checking and exiting recovery status")
 
 	for {
 		done := make([]*coretypes.Key, 0)
 
+		// collect all keys that were being recovered but enough time has passed since the last time we received an
+		// update and assume there is nothing more to receive
 		c.recoveryLock.RLock()
 		for k, t := range c.recovering {
 			if time.Since(t) >= (time.Second * time.Duration(c.cfg.RecoveryGracePeriod)) {
@@ -51,13 +53,13 @@ func (c *Chronos) checkAndExitRecovery() {
 		c.recoveryLock.RUnlock()
 
 		for _, k := range done {
-			c.logger.Debug("Exiting recovery mode", zap.String("key", k.String()))
+			c.logger.Debug("Exiting recovery", zap.String("key", k.String()))
 			c.recoveryLock.Lock()
 			delete(c.recovering, k)
 			c.recoveryLock.Unlock()
 		}
 
-		c.logger.Debug("Sleeping for checking recovery mode", zap.Int("time", c.cfg.RecoveryGracePeriod))
+		c.logger.Debug("Sleeping between recovery status checks", zap.Int("time", c.cfg.RecoveryGracePeriod))
 		time.Sleep(time.Second * time.Duration(c.cfg.RecoveryGracePeriod))
 	}
 }
