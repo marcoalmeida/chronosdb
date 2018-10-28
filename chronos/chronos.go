@@ -153,17 +153,14 @@ func (c *Chronos) GetCluster() *responsetypes.GetRing {
 	return &responsetypes.GetRing{Nodes: c.cluster.GetAllNodes()}
 }
 
-// func (dyn *Chronos) GetDBs() ([]string, error) {
 func (c *Chronos) GetDBs() (*responsetypes.GetDBs, error) {
 	// even in recovery mode should be safe to return the list of DBs as only metrics are replayed
 	dbs, err := c.influxDB.ShowDBs()
 	if err != nil {
 		c.logger.Error("Failed to list DBs", zap.Error(err))
-		// return []string{}, errors.New("failed to get the list of DBs")
 		return nil, err
 	}
 
-	// return dbs, nil
 	return &responsetypes.GetDBs{Databases: dbs}, nil
 }
 

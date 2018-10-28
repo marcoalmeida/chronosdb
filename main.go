@@ -4,12 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"time"
 
 	"github.com/marcoalmeida/chronosdb/chronos"
 	"github.com/marcoalmeida/chronosdb/config"
+	"github.com/marcoalmeida/chronosdb/handler"
 	"github.com/marcoalmeida/chronosdb/influxdb"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -22,7 +24,6 @@ type app struct {
 	chronos *chronos.Chronos
 }
 
-// TODO: is rand still used anywhere?
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
@@ -88,9 +89,30 @@ func main() {
 		chronos: chronos.New(cfg, logger),
 	}
 
-	// start ChronosDB-related tasks (these run in the background and do not block)
+	// start ChronosDB-related tasks (these run in the background as to not block getting to listen-and-serve)
 	app.chronos.Start()
 
 	// listen and serve ChronosDB (most of the Chronos-related tasks above )
 	serve(app)
+}
+
+// setup handlers, listen and serve ChronosDB
+func serve(app *app) {
+	env := &handler.Env{
+		Chronos: app.chronos,
+		Logger:  app.logger,
+	}
+	handler.Register(env)
+
+	app.logger.Info(
+		"Ready to listen",
+		zap.Int64("port", app.port),
+		zap.String("IP", app.listen),
+	)
+
+	listenOn := fmt.Sprintf("%s:%d", app.listen, app.port)
+	err := http.ListenAndServe(listenOn, nil)
+	if err != nil {
+		app.logger.Error("Server error", zap.Error(err))
+	}
 }
