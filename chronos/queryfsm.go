@@ -37,15 +37,14 @@ func (c *Chronos) fsmStartQuery(
 }
 
 func (c *Chronos) fsmRunQuery(headers http.Header, uri string, form url.Values) (int, []byte) {
+	// TODO: what if it's a SHOW DB statement?
+	// TODO: the absence of a key should imply that ChronosDB is not expected to handle the query and just executes
+	//  it locally acting like a transparent proxy; but what if it's SHOW MEASUREMENTS or something like that? we
+	//  need to be mindful of what InfluxQL queries need to be mapped to a specific node
 	// the key is always added by the coordinator
 	key := getKeyFromRequest(headers)
 	if key == nil {
 		return http.StatusInternalServerError, []byte("key missing")
-	}
-
-	// if the node is in recovering mode for the key being queried we can't proceed
-	if c.isRecovering(key) {
-		return http.StatusServiceUnavailable, []byte("in recovery")
 	}
 
 	return c.influxDB.Query(uri, form)
@@ -56,6 +55,7 @@ func (c *Chronos) fsmCoordinateQuery(
 	uri string,
 	form url.Values,
 ) (int, []byte) {
+	// TODO: what if it's a SHOW DB statement?
 	// create the partitioning key from the DB and measurement names
 	db := influxdb.DBNameFromURL(form)
 	query := influxdb.QueryFromURL(form)
@@ -145,8 +145,8 @@ func (c *Chronos) fsmForwardQuery(
 		zap.String("coordinator", c.cfg.NodeID),
 		zap.String("target", node),
 	)
-	u := c.createForwardURL(node, uri)
-	h := createForwardHeaders(key)
+	u := c.generateForwardURL(node, uri)
+	h := c.generateForwardHeaders(key)
 	status, response := shared.DoPost(
 		u,
 		[]byte(form.Encode()),

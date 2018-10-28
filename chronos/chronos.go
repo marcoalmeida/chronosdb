@@ -73,13 +73,10 @@ func (c *Chronos) Start() {
 	go c.initialize()
 	// continuously replay all entries in the intent log
 	go c.replayIntentLog()
-
-	// TODO: this could/should be something that's explicitly called when a new node is added or a request to
-	// rebalance comes in
-	// // background task to push local keys to other nodes
-	// go chronos.transferKeys()
-	// background task to check for the last write in recover mode and exit it if past the grace period (and not
-	// initializing)
+	// transfer keys that other replicas should also own but don't yet have (temporarily down, new node bootstrapping)
+	// drop keys (after transferring them) that are no longer owned by this node (new nodes were added)
+	go c.crosscheck()
+	// check for the last write timestamp in recovery mode (for each key) and exit if past the grace period
 	go c.checkAndExitRecovery()
 }
 
@@ -119,7 +116,7 @@ func (c *Chronos) replayIntentLog() {
 			zap.String("key", entry.Key.String()),
 			zap.String("uri", entry.URI),
 		)
-
+		// TODO: forwarding writes is a common operation, there should be a single function
 		c.fsmForwardWrite(
 			entry.Node,
 			entry.URI,
@@ -214,8 +211,8 @@ func (c *Chronos) createOrDropDB(
 
 		for _, node := range c.cluster.GetAllNodes() {
 			if node != c.cfg.NodeID {
-				u := c.createForwardURL(node, uri)
-				h := createForwardHeaders(nil)
+				u := c.generateForwardURL(node, uri)
+				h := c.generateForwardHeaders(nil)
 				c.logger.Debug("Forwarding request", zap.String("url", u), zap.String("action", action))
 				switch action {
 				case "DROP":
@@ -285,7 +282,7 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 	//c.checkAndSetRecoveryMode(form)
 
 	// if a key is being transferred, update the tracking information
-	if c.requestIsKeyTransfer(form) {
+	if c.requestIsCrosscheck(headers) {
 		// persist this to disk every to often so that we can survive a temporary failure during the transfer
 		//
 		// problem: transfer begins, receiving node dies midway through, sender node fails while generating intentLog; next
@@ -305,6 +302,17 @@ func (c *Chronos) Query(headers http.Header, uri string, form url.Values) (int, 
 	// no querying metrics while initializing
 	if c.initializing {
 		return http.StatusServiceUnavailable, []byte("initializing")
+	}
+
+	// TODO: distinguish between a request we should just pass through and one that ChronosDB needs to act on
+	//  a key won't even exist on most of them
+
+	// if the node is in recovering mode for the key being queried we can't proceed
+	key := getKeyFromRequest(headers)
+	if key != nil {
+		if c.isRecovering(key) {
+			return http.StatusServiceUnavailable, []byte("in recovery")
+		}
 	}
 
 	return c.fsmStartQuery(headers, uri, form)
@@ -368,7 +376,7 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 //// if the request is either a hint being handed off or part of a key transfer, put the node in recovery mode and
 //// update the timestamp (for the key being written)
 //func (c *Chronos) checkAndSetRecoveryMode(form url.Values) {
-//	if c.requestIsHintedHandoff(form) || c.requestIsKeyTransfer(form) {
+//	if c.requestIsHintedHandoff(form) || c.requestIsCrosscheck(form) {
 //		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
 //		key := getKeyFromURL(form)
 //		c.logger.Info("Putting node in recovery mode", zap.String("key", key.String()))
@@ -414,7 +422,7 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 //
 //		// wait for a random period of time to avoid having multiple nodes trying to initiate transfer requests at
 //		// the same time
-//		r := rand.Intn(d.cfg.KeyTransferInterval)
+//		r := rand.Intn(d.cfg.CrossCheckSendInterval)
 //		d.logger.Debug("Sleeping between key transfer attempts", zap.Int("time", r))
 //		time.Sleep(time.Duration(r) * time.Second)
 //	}

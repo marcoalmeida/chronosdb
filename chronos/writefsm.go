@@ -133,7 +133,7 @@ func (c *Chronos) fsmForwardWrite(
 		zap.String("coordinator", c.cfg.NodeID),
 		zap.String("target", node),
 	)
-	u := c.createForwardURL(node, origURI)
+	u := c.generateForwardURL(node, origURI)
 	status, response := shared.DoPost(
 		u,
 		metrics,
@@ -247,8 +247,9 @@ func (c *Chronos) fsmStoreHint(
 	payload []byte,
 ) error {
 	return c.intentLog.Add(&ilog.Entry{
-		Node:    node,
-		URI:     c.createHandoffURL(uri, key),
+		Node: node,
+		URI:  c.createHandoffURL(uri, key),
+		// TODO: include headers
 		Key:     key,
 		Payload: payload,
 	})

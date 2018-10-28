@@ -28,25 +28,26 @@ const (
 // possible locations for the configuration file, in order ot preference
 var defaultCfgPaths []string = []string{"/etc/chronosdb.toml", "chronosdb.toml"}
 
+// TODO: match configuration directives to field names
 type ChronosCfg struct {
-	ListenIP             string `toml:"listen_ip"`
-	Port                 int64
-	EnableDebug          bool               `toml:"enable_debug"`
-	DataDirectory        string             `toml:"data_dir"`
-	Nodes                map[string]float64 `toml:"nodes"`
-	NodeID               string             `toml:"node_id"`
-	NumberOfReplicas     int                `toml:"n_replicas"`
-	WriteQuorum          int                `toml:"write_quorum"`
-	ReadQuorum           int                `toml:"read_quorum"`
-	ReplayInterval       int                `toml:"handoff_interval"`
-	KeyTransferInterval  int                `toml:"key_transfer_interval"`
-	KeyTransferBatchSize int                `toml:"key_transfer_batch_size"`
-	KeyRecvTimeout       int                `toml:"key_recv_timeout"`
-	RecoveryGracePeriod  int                `toml:"recovery_grace_period"`
-	ConnectTimeout       int                `toml:"connect_timeout"`
-	ClientTimeout        int                `toml:"client_timeout"`
-	MaxRetries           int                `toml:"max_retries"`
-	InfluxDB             influxdb.Cfg
+	ListenIP               string `toml:"listen_ip"`
+	Port                   int64
+	EnableDebug            bool               `toml:"enable_debug"`
+	DataDirectory          string             `toml:"data_dir"`
+	Nodes                  map[string]float64 `toml:"nodes"`
+	NodeID                 string             `toml:"node_id"`
+	NumberOfReplicas       int                `toml:"n_replicas"`
+	WriteQuorum            int                `toml:"write_quorum"`
+	ReadQuorum             int                `toml:"read_quorum"`
+	ReplayInterval         int                `toml:"handoff_interval"`
+	CrossCheckSendInterval int                `toml:"key_transfer_interval"`
+	CrossCheckBatchSize    int                `toml:"key_transfer_batch_size"`
+	CrossCheckRecvTimeout  int                `toml:"key_recv_timeout"`
+	RecoveryGracePeriod    int                `toml:"recovery_grace_period"`
+	ConnectTimeout         int                `toml:"connect_timeout"`
+	ClientTimeout          int                `toml:"client_timeout"`
+	MaxRetries             int                `toml:"max_retries"`
+	InfluxDB               influxdb.Cfg
 }
 
 func New(path *string, logger *zap.Logger) (*ChronosCfg, error) {
@@ -93,9 +94,9 @@ func setDefaults(cfg *ChronosCfg) {
 	cfg.NumberOfReplicas = defaultNumberReplicas
 	cfg.WriteQuorum = defaultWriteQuorum
 	cfg.ReplayInterval = defaultHandoffInterval
-	cfg.KeyTransferInterval = defaultKeyTransferInterval
-	cfg.KeyTransferBatchSize = defaultKeyTransferChunkSize
-	cfg.KeyRecvTimeout = defaultKeyRecvTimeout
+	cfg.CrossCheckSendInterval = defaultKeyTransferInterval
+	cfg.CrossCheckBatchSize = defaultKeyTransferChunkSize
+	cfg.CrossCheckRecvTimeout = defaultKeyRecvTimeout
 	cfg.ConnectTimeout = defaultConnectTimeout
 	cfg.ClientTimeout = defaultClientTimeout
 	cfg.MaxRetries = defaultMaxRetires
@@ -129,7 +130,7 @@ func validateConfig(cfg *ChronosCfg) error {
 		return errors.New("the recovery grace period should be at least 2x larger than the handoff interval")
 	}
 
-	if !((cfg.KeyTransferInterval * 2) <= cfg.RecoveryGracePeriod) {
+	if !((cfg.CrossCheckSendInterval * 2) <= cfg.RecoveryGracePeriod) {
 		return errors.New("the recovery grace period should be at least 2x larger than the key transfer interval")
 	}
 
