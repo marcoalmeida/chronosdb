@@ -21,8 +21,13 @@ import (
 
 // running continuously allows to send missing key at any moment in time
 // besides helping with potentially weird issues like nodes dying midway through a transfer (either source or
-// destination) this is also useful for when we implement auto discovery and don't need to restart ChronosDB to add
+// destination [1]) this is also useful for when we implement auto discovery and don't need to restart ChronosDB to add
 // nodes
+//
+// [1] - if the source dies midway through sending some key,
+// the target replica will eventually start replying with "key missing" when asked if it's there.
+// if this process runs continuously then some other replica will eventually check for that and start sending the
+// data
 
 func (c *Chronos) crosscheck() {
 	// block indefinitely while the node is initializing
@@ -40,36 +45,14 @@ func (c *Chronos) crosscheck() {
 		targets := c.crosscheckFindTargets()
 		if targets == nil {
 			c.logger.Error("Cannot proceed with cross-check")
-		}
-
-		for replica, keys := range targets {
-			c.crosscheckSend(replica, keys)
+		} else {
+			// TODO: transfer keys in parallel to multiple nodes + use a rate limiter to control outgoing traffic
+			for replica, keys := range targets {
+				c.crosscheckSend(replica, keys)
+			}
 		}
 
 		time.Sleep(time.Duration(c.cfg.CrossCheckSendInterval) * time.Second)
-		//
-		//	keys, err := c.getKeys()
-		//	if err != nil {
-		//		continue
-		//	}
-		//
-		//	for _, k := range keys {
-		//		replicas, err := c.getReplicas(k)
-		//		if err != nil {
-		//			c.logger.Error(
-		//				"Not enough replicas available",
-		//				zap.Int("need", c.cfg.NumberOfReplicas),
-		//			)
-		//			continue
-		//		}
-		//
-		//		for _, r := range replicas {
-		//			// skip self
-		//			if r != c.cfg.NodeID {
-		//				//targets[n] = append(targets[n], key)
-		//			}
-		//		}
-		//	}
 	}
 }
 
@@ -121,9 +104,8 @@ func (c *Chronos) crosscheckFindTargets() map[string][]*coretypes.Key {
 	return targets
 }
 
-// TODO: transfer keys in parallel to multiple nodes + use a rate limiter to control outgoing traffic
-// transfer all keys to a given node in some random order (to minimize the probability of having more
-// than one node trying to transfer the same data to the same target)
+// send all keys to a given node in some random order (to minimize the probability of having more
+// than one node trying to send the same data to the same target)
 func (c *Chronos) crosscheckSend(replica string, keys []*coretypes.Key) {
 	order := rand.Perm(len(keys))
 	for _, i := range order {
