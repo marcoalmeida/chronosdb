@@ -213,7 +213,7 @@ func (c *Chronos) crosscheckSendKey(replica string, key *coretypes.Key) {
 			headers,
 			c.httpClient,
 			c.cfg.MaxRetries,
-			c.logger, "chronos.fsmForwardWrite",
+			c.logger, "chronos.crosscheckSendKey",
 		)
 
 		if status >= 200 && status <= 299 {
