@@ -17,9 +17,15 @@ const (
 	qsKey             = "xdbKey"
 )
 
-// return true iff the current node is coordinating this request, i.e., the `forward` header has not been set
-func (c *Chronos) nodeIsCoordinator(headers http.Header) bool {
-	return headers.Get(headerXForward) == ""
+// used by many top-level functions to generate a specific header
+func generateHeaders(key *coretypes.Key, headerKey string) http.Header {
+	headers := http.Header{}
+	headers.Set(headerKey, "true")
+	if key != nil {
+		headers.Set(headerXKey, key.String())
+	}
+
+	return headers
 }
 
 // generate a URL to be used for forwarding a request
@@ -32,22 +38,17 @@ func (c *Chronos) generateForwardHeaders(key *coretypes.Key) http.Header {
 	return generateHeaders(key, headerXForward)
 }
 
+// return true iff the current node is coordinating this request, i.e., the `forward` header has not been set
+func (c *Chronos) nodeIsCoordinator(headers http.Header) bool {
+	return headers.Get(headerXForward) == ""
+}
+
 func (c *Chronos) generateCrosscheckHeaders(key *coretypes.Key) http.Header {
 	return generateHeaders(key, headerXCrosscheck)
 }
 
-// used by many top-level functions to generate a specific header
-func generateHeaders(key *coretypes.Key, headerKey string) http.Header {
-	headers := http.Header{}
-	headers.Set(headerKey, "true")
-	if key != nil {
-		headers.Set(headerXKey, key.String())
-	}
-
-	return headers
-}
-
-// return true iff the current node is coordinating this request, i.e., the `forward` header has not been set
+// return true iff the current request is part of the cross-check process, i.e.,
+// the `crosscheck` header has been set
 func (c *Chronos) requestIsCrosscheck(headers http.Header) bool {
 	return headers.Get(headerXCrosscheck) == ""
 }
