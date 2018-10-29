@@ -84,7 +84,7 @@ func (c *Chronos) Start() {
 func (c *Chronos) replayIntentLog() {
 	c.logger.Info("Starting to replay the Intent Log")
 	wait := c.cfg.ReplayInterval
-	forwardWriteResultsChan := make(chan fsmForwardWriteResult, 1)
+	// forwardWriteResultsChan := make(chan fsmForwardWriteResult, 1)
 
 	for {
 		c.logger.Debug("Sleeping between intent log entries", zap.Int("time", wait))
@@ -116,16 +116,10 @@ func (c *Chronos) replayIntentLog() {
 			zap.String("key", entry.Key.String()),
 			zap.String("uri", entry.URI),
 		)
-		// TODO: forwarding writes is a common operation, there should be a single function
-		c.fsmForwardWrite(
-			entry.Node,
-			entry.URI,
-			entry.Key,
-			entry.Payload,
-			forwardWriteResultsChan,
-		)
-		result := <-forwardWriteResultsChan
-		if result.httpStatus >= 200 && result.httpStatus <= 299 {
+		headers := &http.Header{}
+		c.setIntentLogHeaders(entry.Key, headers)
+		status, _ := c.forwardRequest(entry.Node, headers, entry.URI, entry.Key, entry.Payload)
+		if status >= 200 && status <= 299 {
 			err := c.intentLog.Remove(entry)
 			if err != nil {
 				c.logger.Error("Failed to remove intent log entry", zap.Error(err))
@@ -202,21 +196,21 @@ func (c *Chronos) createOrDropDB(
 	}
 
 	// if acting as coordinator, i.e., this request was not forwarded, forward it to all nodes (but itself)
-	if c.nodeIsCoordinator(headers) {
+	if nodeIsCoordinator(headers) {
 		var status int
 		var response []byte
 
 		for _, node := range c.cluster.GetAllNodes() {
 			if node != c.cfg.NodeID {
 				u := c.generateForwardURL(node, uri)
-				h := c.generateForwardHeaders(nil)
+				setForwardHeaders(nil, &headers)
 				c.logger.Debug("Forwarding request", zap.String("url", u), zap.String("action", action))
 				switch action {
 				case "DROP":
 					status, response = shared.DoDelete(
 						u,
 						nil,
-						h,
+						headers,
 						c.httpClient,
 						c.cfg.MaxRetries,
 						c.logger,
@@ -226,7 +220,7 @@ func (c *Chronos) createOrDropDB(
 					status, response = shared.DoPut(
 						u,
 						nil,
-						h,
+						headers,
 						c.httpClient,
 						c.cfg.MaxRetries,
 						c.logger,
@@ -275,15 +269,21 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 		return http.StatusServiceUnavailable, []byte("initializing")
 	}
 
-	//// if dealing with a hinted handoff or key transfer we need to put the node in recovery mode
-	//c.checkAndSetRecoveryMode(form)
+	// if the request is either an entry from an intent log being replayed or part of the cross-check process,
+	// put that key in recovery mode
+	c.checkAndSetRecoveryMode(headers)
 
-	// if a key is being transferred, update the tracking information
+	// if the request is coming in as part of the cross-check process persist the key to disk so that we can survive
+	// a temporary failure during the transfer process
+	//
+	// problem: transfer begins, receiving node dies midway through or sender node fails before finishing sending
+	// the whole key; the next time this node is queried it'll say the key exists even though it's incomplete
+	//
+	// instead persist to disk once it starts receiving it and delete it only after receiving an ack from the source
+	// confirming it's all done;
 	if c.requestIsCrosscheck(headers) {
-		// persist this to disk every to often so that we can survive a temporary failure during the transfer
+		// persist this to disk every to often
 		//
-		// problem: transfer begins, receiving node dies midway through, sender node fails while generating intentLog; next
-		// time this node is queried it'll say the key exists even though it's incomplete
 		// TODO
 		//k := c.getKeyFromURL(form)
 		//c.beginKeyRecv(k)
@@ -369,19 +369,18 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 	//return false, nil
 }
 
-//
-//// if the request is either a hint being handed off or part of a key transfer, put the node in recovery mode and
-//// update the timestamp (for the key being written)
-//func (c *Chronos) checkAndSetRecoveryMode(form url.Values) {
-//	if c.requestIsHintedHandoff(form) || c.requestIsCrosscheck(form) {
-//		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
-//		key := getKeyFromURL(form)
-//		c.logger.Info("Putting node in recovery mode", zap.String("key", key.String()))
-//		c.recoveryLock.Lock()
-//		c.recovering[key] = time.Now()
-//		c.recoveryLock.Unlock()
-//	}
-//}
+// if the request is either an entry from an intent log being replayed or part of the cross-check process,
+// put that key in recovery mode (add/update the timestamp for the key in question)
+func (c *Chronos) checkAndSetRecoveryMode(headers http.Header) {
+	if c.requestIsIntentLog(headers) || c.requestIsCrosscheck(headers) {
+		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
+		key := getKeyFromRequest(headers)
+		c.logger.Info("Putting key in recovery mode", zap.String("key", key.String()))
+		c.recoveryLock.Lock()
+		c.recovering[key] = time.Now()
+		c.recoveryLock.Unlock()
+	}
+}
 
 // run in the background and periodically ping all replicas that should own the same keys this node holds to confirm
 // they have it; if they don't, start to transfer them
@@ -424,3 +423,32 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 //		time.Sleep(time.Duration(r) * time.Second)
 //	}
 //}
+
+// set the right headers, generate the full URL to forward the request to, make the request,
+// and return the HTTP status code and response body
+//
+// this is intended to be used for both read and write requests
+func (c *Chronos) forwardRequest(
+	node string,
+	headers *http.Header,
+	uri string,
+	key *coretypes.Key,
+	payload []byte,
+) (int, []byte) {
+	c.logger.Debug("Forwarding request",
+		zap.String("coordinator", c.cfg.NodeID),
+		zap.String("replica", node),
+		zap.String("uri", uri),
+		zap.String("key", key.String()),
+	)
+	u := c.generateForwardURL(node, uri)
+	setForwardHeaders(key, headers)
+	return shared.DoPost(
+		u,
+		payload,
+		*headers,
+		c.httpClient,
+		c.cfg.MaxRetries,
+		c.logger, "chronos.forwardRequest",
+	)
+}

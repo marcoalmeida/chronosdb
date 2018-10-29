@@ -7,7 +7,6 @@ import (
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
 	"github.com/marcoalmeida/chronosdb/influxdb"
-	"github.com/marcoalmeida/chronosdb/shared"
 	"go.uber.org/zap"
 )
 
@@ -23,7 +22,7 @@ func (c *Chronos) fsmStartQuery(
 	form url.Values,
 ) (int, []byte) {
 	// run the query locally and return the results
-	if !c.nodeIsCoordinator(headers) {
+	if !nodeIsCoordinator(headers) {
 		c.logger.Debug("Running query locally",
 			zap.String("db", form.Get("db")),
 			zap.String("node", c.cfg.NodeID),
@@ -145,17 +144,8 @@ func (c *Chronos) fsmForwardQuery(
 		zap.String("coordinator", c.cfg.NodeID),
 		zap.String("target", node),
 	)
-	u := c.generateForwardURL(node, uri)
-	h := c.generateForwardHeaders(key)
-	status, response := shared.DoPost(
-		u,
-		[]byte(form.Encode()),
-		h,
-		c.httpClient,
-		c.cfg.MaxRetries,
-		c.logger, "chronos.fsmForwardQuery",
-	)
 
+	status, response := c.forwardRequest(node, &http.Header{}, uri, key, []byte(form.Encode()))
 	resultsChan <- fsmQueryResult{
 		node:         node,
 		httpStatus:   status,

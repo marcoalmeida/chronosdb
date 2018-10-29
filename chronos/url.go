@@ -1,9 +1,12 @@
+// TODO: this can probably be moved to its own package
+//  (maybe `requests` as this is more than just URLs?) -- only one dependency on ChronosDB
+//  (which can be easily injected) and this package is very self-contained
+
 package chronos
 
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
 )
@@ -12,39 +15,37 @@ import (
 const (
 	headerXForward    = "X-ChronosDB-Forward"
 	headerXKey        = "X-ChronosDB-Key"
-	qsHandoff         = "xdbHandoff"
 	headerXCrosscheck = "X-ChronosDB-Crosscheck"
-	qsKey             = "xdbKey"
+	headerXIntentLog  = "X-ChronosDB-IntentLog"
 )
-
-// used by many top-level functions to generate a specific header
-func generateHeaders(key *coretypes.Key, headerKey string) http.Header {
-	headers := http.Header{}
-	headers.Set(headerKey, "true")
-	if key != nil {
-		headers.Set(headerXKey, key.String())
-	}
-
-	return headers
-}
 
 // generate a URL to be used for forwarding a request
 func (c *Chronos) generateForwardURL(node string, uri string) string {
 	return fmt.Sprintf("http://%s:%d%s", node, c.cfg.Port, uri)
 }
 
-// generate headers for a request being transferred
-func (c *Chronos) generateForwardHeaders(key *coretypes.Key) http.Header {
-	return generateHeaders(key, headerXForward)
+// mark a request as being forwarded from a coordinator to its final destination
+// some forwarded requests include a key; others, like create DB, do not
+func setForwardHeaders(key *coretypes.Key, headers *http.Header) {
+	if key != nil {
+		headers.Set(headerXKey, key.String())
+	}
+
+	headers.Set(headerXForward, "true")
 }
 
 // return true iff the current node is coordinating this request, i.e., the `forward` header has not been set
-func (c *Chronos) nodeIsCoordinator(headers http.Header) bool {
-	return headers.Get(headerXForward) == ""
+func nodeIsCoordinator(headers http.Header) bool {
+	return headers.Get(headerXForward) != "true"
 }
 
-func (c *Chronos) generateCrosscheckHeaders(key *coretypes.Key) http.Header {
-	return generateHeaders(key, headerXCrosscheck)
+// mark a request as originating from the cross-check process
+func (c *Chronos) setCrosscheckHeaders(key *coretypes.Key, headers *http.Header) {
+	if key == nil {
+		c.logger.Error("Found nil key while setting cross-check headers")
+	}
+	headers.Set(headerXKey, key.String())
+	headers.Set(headerXCrosscheck, "true")
 }
 
 // return true iff the current request is part of the cross-check process, i.e.,
@@ -53,46 +54,18 @@ func (c *Chronos) requestIsCrosscheck(headers http.Header) bool {
 	return headers.Get(headerXCrosscheck) == ""
 }
 
-// TODO: use headers instead of the query string
-// expand and existing URL to include the internal query string marker that signals a handoff
-// also include the key being handed off just for convenience
-func (c *Chronos) createHandoffURL(uri string, key *coretypes.Key) string {
-	u, err := url.ParseRequestURI(uri)
-	if err != nil {
-		return ""
+func (c *Chronos) setIntentLogHeaders(key *coretypes.Key, headers *http.Header) {
+	if key == nil {
+		c.logger.Error("Found nil key while setting intent log headers")
 	}
-
-	q := u.Query()
-	q.Set(qsHandoff, "true")
-	q.Set(qsKey, key.String())
-	u.RawQuery = q.Encode()
-
-	return u.String()
+	headers.Set(headerXKey, key.String())
+	headers.Set(headerXIntentLog, "true")
 }
 
-// TODO: use headers instead of the query string
-// return true iff the current request is a hint being handed off
-func (c *Chronos) requestIsHintedHandoff(form url.Values) bool {
-	return form.Get(qsHandoff) == "true"
-
-}
-
-//// TODO
-//// not pretty, tightly coupled with an InfluxDB URL and overloading it, but we need to create the URL somehow,
-//// somewhere.
-//// maybe the influxdb package could return a base URL that this function then expands (similarly to createHandoffURL)?
-//// TODO: headers instead of qs
-//func (c *Chronos) createKeyTransferURL(key *coretypes.Key) string {
-//	return fmt.Sprintf("/write?db=%s&%s=%s&%s=true", key.DB, qsKey, key.String(), qsTransfer)
-//}
-
-//// return true iff the current request is part of a key transfer
-//func (c *Chronos) requestIsCrosscheck(form url.Values) bool {
-//	return form.Get(qsTransfer) == "true"
-//}
-
-func getKeyFromURL(form url.Values) *coretypes.Key {
-	return coretypes.KeyFromString(form.Get("key"))
+// return true iff the current request is part of the cross-check process, i.e.,
+// the `crosscheck` header has been set
+func (c *Chronos) requestIsIntentLog(headers http.Header) bool {
+	return headers.Get(headerXIntentLog) == ""
 }
 
 func getKeyFromRequest(headers http.Header) *coretypes.Key {

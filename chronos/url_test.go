@@ -1,29 +1,38 @@
 package chronos
 
 import (
-	"net/url"
+	"net/http"
 	"testing"
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
 )
 
-func TestChronos_getKeyFromURL(t *testing.T) {
-	v := url.Values{}
+func TestChronos_forwardHeaders(t *testing.T) {
+	headers := http.Header{}
 
-	// no key
-	k := getKeyFromURL(v)
-	if k != nil {
-		t.Error("Expected nil, got:", k)
+	if !nodeIsCoordinator(headers) {
+		t.Error("Unexpectedly found forward header:", nodeIsCoordinator(headers))
 	}
 
-	// some key
-	db := "db"
-	measurement := "m"
-	key := coretypes.NewKey(db, measurement)
-	v.Add("key", key.String())
-	// extract it
-	k = getKeyFromURL(v)
-	if k.DB != key.DB || k.Measurement != key.Measurement {
-		t.Error("Expected", key.String(), "got:", k.String())
+	setForwardHeaders(nil, &headers)
+	if nodeIsCoordinator(headers) {
+		t.Error("Expected to find forward header:", nodeIsCoordinator(headers))
+	}
+}
+
+func TestChronos_getKeyFromRequest(t *testing.T) {
+	headers := http.Header{}
+
+	k0 := getKeyFromRequest(headers)
+	if k0 != nil {
+		t.Error("Expected nil key, got", k0)
+	}
+
+	// use setForwardHeaders to set a key
+	k1 := coretypes.NewKey("db", "m")
+	setForwardHeaders(k1, &headers)
+	k2 := getKeyFromRequest(headers)
+	if k2.String() != k1.String() {
+		t.Error("Expected", k2, "got", k2)
 	}
 }

@@ -2,11 +2,11 @@ package chronos
 
 import (
 	"math/rand"
+	"net/http"
 	"time"
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
 	"github.com/marcoalmeida/chronosdb/influxdb"
-	"github.com/marcoalmeida/chronosdb/shared"
 	"go.uber.org/zap"
 )
 
@@ -41,6 +41,9 @@ func (c *Chronos) crosscheck() {
 
 	c.logger.Info("Starting cross-check task")
 
+	// TODO: we need a setting to control how many replicas to send data to at the same time and how many bytes per
+	//  second to transfer (basic rate limiting)
+	// TODO: replicas returned from crosscheckFindTargets()
 	for {
 		targets := c.crosscheckFindTargets()
 		if targets == nil {
@@ -107,7 +110,9 @@ func (c *Chronos) crosscheckFindTargets() map[string][]*coretypes.Key {
 // send all keys to a given node in some random order (to minimize the probability of having more
 // than one node trying to send the same data to the same target)
 func (c *Chronos) crosscheckSend(replica string, keys []*coretypes.Key) {
+	// random order to use when iterating through the list of keys
 	order := rand.Perm(len(keys))
+
 	for _, i := range order {
 		key := keys[i]
 
@@ -186,17 +191,15 @@ func (c *Chronos) crosscheckSendKey(replica string, key *coretypes.Key) {
 			// TODO: remove the key in case this node is not on the list of replicas anymore
 			return
 		}
-		// TODO: forwarding writes is a common operation, there should be a single function
-		uri := influxdb.GenerateWriteURI(key.DB)
-		headers := c.generateCrosscheckHeaders(key)
-		status, _ := shared.DoPost(
-			uri,
-			metrics,
-			headers,
-			c.httpClient,
-			c.cfg.MaxRetries,
-			c.logger, "chronos.crosscheckSendKey",
+		// send the batch of data
+		c.logger.Debug("Cross-check: sending batch",
+			zap.String("key", key.String()),
+			zap.Int("batch", batch),
 		)
+		uri := influxdb.GenerateWriteURI(key.DB)
+		headers := http.Header{}
+		c.setCrosscheckHeaders(key, &headers)
+		status, _ := c.forwardRequest(replica, &headers, uri, key, metrics)
 
 		if status >= 200 && status <= 299 {
 			c.logger.Debug("Cross-check: successfully sent batch",

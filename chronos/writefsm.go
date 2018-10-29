@@ -7,15 +7,12 @@ import (
 	"github.com/marcoalmeida/chronosdb/coretypes"
 	"github.com/marcoalmeida/chronosdb/ilog"
 	"github.com/marcoalmeida/chronosdb/influxdb"
-	"github.com/marcoalmeida/chronosdb/shared"
 	"go.uber.org/zap"
 )
 
 type fsmWriteResult struct {
-	node string
-	key  *coretypes.Key
-	//db          string
-	//measurement string
+	node       string
+	key        *coretypes.Key
 	httpStatus int
 	response   []byte
 }
@@ -33,7 +30,7 @@ func (c *Chronos) fsmStartWrite(headers http.Header, uri string, form url.Values
 	// the same call
 	db := influxdb.DBNameFromURL(form)
 
-	if c.nodeIsCoordinator(headers) {
+	if nodeIsCoordinator(headers) {
 		c.logger.Debug("Coordinating write", zap.String("db", db), zap.String("node", c.cfg.NodeID))
 		// start one coordinating task per measurement
 		resultsChan := make(chan fsmWriteResult)
@@ -121,9 +118,10 @@ func (c *Chronos) fsmCoordinateWrite(
 	c.fsmCheckWriteQuorum(nodes, uri, key, metrics, forwardWriteResultsChan, resultsChan)
 }
 
+// forward the write request synchronously and put the result in a channel
 func (c *Chronos) fsmForwardWrite(
 	node string,
-	origURI string,
+	uri string,
 	key *coretypes.Key,
 	metrics []byte,
 	forwardWriteResultsChan chan<- fsmForwardWriteResult,
@@ -131,18 +129,9 @@ func (c *Chronos) fsmForwardWrite(
 	c.logger.Debug("Forwarding write",
 		zap.String("key", key.String()),
 		zap.String("coordinator", c.cfg.NodeID),
-		zap.String("target", node),
+		zap.String("replica", node),
 	)
-	u := c.generateForwardURL(node, origURI)
-	status, response := shared.DoPost(
-		u,
-		metrics,
-		nil,
-		c.httpClient,
-		c.cfg.MaxRetries,
-		c.logger, "chronos.fsmForwardWrite",
-	)
-
+	status, response := c.forwardRequest(node, &http.Header{}, uri, key, metrics)
 	forwardWriteResultsChan <- fsmForwardWriteResult{node: node, httpStatus: status, response: response}
 }
 
@@ -247,9 +236,8 @@ func (c *Chronos) fsmStoreHint(
 	payload []byte,
 ) error {
 	return c.intentLog.Add(&ilog.Entry{
-		Node: node,
-		URI:  c.createHandoffURL(uri, key),
-		// TODO: include headers
+		Node:    node,
+		URI:     uri,
 		Key:     key,
 		Payload: payload,
 	})
