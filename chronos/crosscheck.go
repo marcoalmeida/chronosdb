@@ -198,7 +198,7 @@ func (c *Chronos) crosscheckSendKey(replica string, key *coretypes.Key) {
 		)
 		uri := influxdb.GenerateWriteURI(key.DB)
 		headers := http.Header{}
-		c.setCrosscheckHeaders(key, &headers)
+		c.request.SetCrosscheckHeaders(key, &headers)
 		status, _ := c.forwardRequest(replica, &headers, uri, key, metrics)
 
 		if status >= 200 && status <= 299 {

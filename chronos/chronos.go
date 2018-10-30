@@ -12,6 +12,7 @@ import (
 	"github.com/marcoalmeida/chronosdb/gossip"
 	"github.com/marcoalmeida/chronosdb/ilog"
 	"github.com/marcoalmeida/chronosdb/influxdb"
+	"github.com/marcoalmeida/chronosdb/request"
 	"github.com/marcoalmeida/chronosdb/responsetypes"
 	"github.com/marcoalmeida/chronosdb/shared"
 	"github.com/marcoalmeida/hrw"
@@ -23,6 +24,7 @@ type Chronos struct {
 	logger     *zap.Logger
 	cluster    hrw.Nodes
 	gossip     *gossip.Gossip
+	request    *request.Request
 	intentLog  *ilog.ILog
 	httpClient *http.Client
 	influxDB   *influxdb.InfluxDB
@@ -51,6 +53,7 @@ func New(cfg *config.ChronosCfg, logger *zap.Logger) *Chronos {
 		cfg:          cfg,
 		cluster:      cluster,
 		gossip:       gossip.New(cfg.Port, httpClient, cfg.MaxRetries, logger),
+		request:      request.New(cfg.Port, logger),
 		intentLog:    ilog.New(cfg.DataDirectory, logger),
 		initializing: true,
 		recovering:   make(map[*coretypes.Key]time.Time, 0),
@@ -117,7 +120,7 @@ func (c *Chronos) replayIntentLog() {
 			zap.String("uri", entry.URI),
 		)
 		headers := &http.Header{}
-		c.setIntentLogHeaders(entry.Key, headers)
+		c.request.SetIntentLogHeaders(entry.Key, headers)
 		status, _ := c.forwardRequest(entry.Node, headers, entry.URI, entry.Key, entry.Payload)
 		if status >= 200 && status <= 299 {
 			err := c.intentLog.Remove(entry)
@@ -196,14 +199,14 @@ func (c *Chronos) createOrDropDB(
 	}
 
 	// if acting as coordinator, i.e., this request was not forwarded, forward it to all nodes (but itself)
-	if nodeIsCoordinator(headers) {
+	if c.request.NodeIsCoordinator(headers) {
 		var status int
 		var response []byte
 
 		for _, node := range c.cluster.GetAllNodes() {
 			if node != c.cfg.NodeID {
-				u := c.generateForwardURL(node, uri)
-				setForwardHeaders(nil, &headers)
+				u := c.request.GenerateForwardURL(node, uri)
+				c.request.SetForwardHeaders(nil, &headers)
 				c.logger.Debug("Forwarding request", zap.String("url", u), zap.String("action", action))
 				switch action {
 				case "DROP":
@@ -281,10 +284,11 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 	//
 	// instead persist to disk once it starts receiving it and delete it only after receiving an ack from the source
 	// confirming it's all done;
-	if c.requestIsCrosscheck(headers) {
+	if c.request.RequestIsCrosscheck(headers) {
 		// persist this to disk every to often
 		//
-		// TODO
+		// TODO: deal with the fact that a key might be absent; in that case we should not proceed to write anyting
+		//  log the error and move on
 		//k := c.getKeyFromURL(form)
 		//c.beginKeyRecv(k)
 		//c.keyRecvLock.Lock()
@@ -305,7 +309,8 @@ func (c *Chronos) Query(headers http.Header, uri string, form url.Values) (int, 
 	//  a key won't even exist on most of them
 
 	// if the node is in recovering mode for the key being queried we can't proceed
-	key := getKeyFromRequest(headers)
+	key := c.request.GetKeyFromHeader(headers)
+	// TODO: this does not seem to be a good test condition after the code revamp
 	if key != nil {
 		if c.isRecovering(key) {
 			return http.StatusServiceUnavailable, []byte("in recovery")
@@ -372,9 +377,10 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 // if the request is either an entry from an intent log being replayed or part of the cross-check process,
 // put that key in recovery mode (add/update the timestamp for the key in question)
 func (c *Chronos) checkAndSetRecoveryMode(headers http.Header) {
-	if c.requestIsIntentLog(headers) || c.requestIsCrosscheck(headers) {
+	if c.request.RequestIsIntentLog(headers) || c.request.RequestIsCrosscheck(headers) {
 		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
-		key := getKeyFromRequest(headers)
+		key := c.request.GetKeyFromHeader(headers)
+		// TODO: key might be nil
 		c.logger.Info("Putting key in recovery mode", zap.String("key", key.String()))
 		c.recoveryLock.Lock()
 		c.recovering[key] = time.Now()
@@ -442,8 +448,8 @@ func (c *Chronos) forwardRequest(
 		zap.String("uri", uri),
 		zap.String("key", key.String()),
 	)
-	u := c.generateForwardURL(node, uri)
-	setForwardHeaders(key, headers)
+	u := c.request.GenerateForwardURL(node, uri)
+	c.request.SetForwardHeaders(key, headers)
 	return shared.DoPost(
 		u,
 		payload,

@@ -22,7 +22,7 @@ func (c *Chronos) fsmStartQuery(
 	form url.Values,
 ) (int, []byte) {
 	// run the query locally and return the results
-	if !nodeIsCoordinator(headers) {
+	if !c.request.NodeIsCoordinator(headers) {
 		c.logger.Debug("Running query locally",
 			zap.String("db", form.Get("db")),
 			zap.String("node", c.cfg.NodeID),
@@ -41,7 +41,7 @@ func (c *Chronos) fsmRunQuery(headers http.Header, uri string, form url.Values) 
 	//  it locally acting like a transparent proxy; but what if it's SHOW MEASUREMENTS or something like that? we
 	//  need to be mindful of what InfluxQL queries need to be mapped to a specific node
 	// the key is always added by the coordinator
-	key := getKeyFromRequest(headers)
+	key := c.request.GetKeyFromHeader(headers)
 	if key == nil {
 		return http.StatusInternalServerError, []byte("key missing")
 	}

@@ -30,7 +30,7 @@ func (c *Chronos) fsmStartWrite(headers http.Header, uri string, form url.Values
 	// the same call
 	db := influxdb.DBNameFromURL(form)
 
-	if nodeIsCoordinator(headers) {
+	if c.request.NodeIsCoordinator(headers) {
 		c.logger.Debug("Coordinating write", zap.String("db", db), zap.String("node", c.cfg.NodeID))
 		// start one coordinating task per measurement
 		resultsChan := make(chan fsmWriteResult)
