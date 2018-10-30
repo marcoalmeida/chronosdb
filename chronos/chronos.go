@@ -424,6 +424,7 @@ func (c *Chronos) checkAndSetRecoveryMode(headers http.Header) {
 //	}
 //}
 
+// TODO: move to the `request` package once url.go is turned into that
 // set the right headers, generate the full URL to forward the request to, make the request,
 // and return the HTTP status code and response body
 //
