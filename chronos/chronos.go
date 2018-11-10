@@ -53,7 +53,7 @@ func New(cfg *config.ChronosCfg, logger *zap.Logger) *Chronos {
 		cfg:          cfg,
 		cluster:      cluster,
 		gossip:       gossip.New(cfg.Port, httpClient, cfg.MaxRetries, logger),
-		request:      request.New(cfg.Port, logger),
+		request:      request.New(cfg.NodeID, cfg.Port, cfg.ConnectTimeout, cfg.ClientTimeout, cfg.MaxRetries, logger),
 		intentLog:    ilog.New(cfg.DataDirectory, logger),
 		initializing: true,
 		recovering:   make(map[*coretypes.Key]time.Time, 0),
@@ -430,11 +430,6 @@ func (c *Chronos) checkAndSetRecoveryMode(headers http.Header) {
 //	}
 //}
 
-// TODO: move to the `request` package once url.go is turned into that
-// set the right headers, generate the full URL to forward the request to, make the request,
-// and return the HTTP status code and response body
-//
-// this is intended to be used for both read and write requests
 func (c *Chronos) forwardRequest(
 	node string,
 	headers *http.Header,
@@ -442,20 +437,5 @@ func (c *Chronos) forwardRequest(
 	key *coretypes.Key,
 	payload []byte,
 ) (int, []byte) {
-	c.logger.Debug("Forwarding request",
-		zap.String("coordinator", c.cfg.NodeID),
-		zap.String("replica", node),
-		zap.String("uri", uri),
-		zap.String("key", key.String()),
-	)
-	u := c.request.GenerateForwardURL(node, uri)
-	c.request.SetForwardHeaders(key, headers)
-	return shared.DoPost(
-		u,
-		payload,
-		*headers,
-		c.httpClient,
-		c.cfg.MaxRetries,
-		c.logger, "chronos.forwardRequest",
-	)
+	return c.request.Forward(c.cfg.NodeID, headers, uri, key, payload)
 }
