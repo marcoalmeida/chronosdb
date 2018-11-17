@@ -272,9 +272,12 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 		return http.StatusServiceUnavailable, []byte("initializing")
 	}
 
-	// if the request is either an entry from an intent log being replayed or part of the cross-check process,
-	// put that key in recovery mode
-	c.checkAndSetRecoveryMode(headers)
+	// if the request is either an entry from an intent log being replayed,
+	// put the node in recovery mode for that key
+	if c.request.RequestIsIntentLog(headers) {
+		key := c.request.GetKeyFromHeader(headers)
+		c.setRecovering(key)
+	}
 
 	// if the request is coming in as part of the cross-check process persist the key to disk so that we can survive
 	// a temporary failure during the transfer process
@@ -285,15 +288,12 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 	// instead persist to disk once it starts receiving it and delete it only after receiving an ack from the source
 	// confirming it's all done;
 	if c.request.RequestIsCrosscheck(headers) {
-		// persist this to disk every to often
-		//
-		// TODO: deal with the fact that a key might be absent; in that case we should not proceed to write anyting
-		//  log the error and move on
-		//k := c.getKeyFromURL(form)
-		//c.beginKeyRecv(k)
-		//c.keyRecvLock.Lock()
-		//c.keyRecvTimestamp[k] = time.Now()
-		//c.keyRecvLock.Unlock()
+		// if receiving data during the cross-check process the node should also enter recovery mode
+		// for the key being transferred
+		key := c.request.GetKeyFromHeader(headers)
+		c.setRecovering(key)
+		// TODO: persist this to disk
+
 	}
 
 	return c.fsmStartWrite(headers, uri, form, payload)
@@ -372,20 +372,6 @@ func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 	//}
 	//
 	//return false, nil
-}
-
-// if the request is either an entry from an intent log being replayed or part of the cross-check process,
-// put that key in recovery mode (add/update the timestamp for the key in question)
-func (c *Chronos) checkAndSetRecoveryMode(headers http.Header) {
-	if c.request.RequestIsIntentLog(headers) || c.request.RequestIsCrosscheck(headers) {
-		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
-		key := c.request.GetKeyFromHeader(headers)
-		// TODO: key might be nil
-		c.logger.Info("Putting key in recovery mode", zap.String("key", key.String()))
-		c.recoveryLock.Lock()
-		c.recovering[key] = time.Now()
-		c.recoveryLock.Unlock()
-	}
 }
 
 // run in the background and periodically ping all replicas that should own the same keys this node holds to confirm

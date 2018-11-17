@@ -7,6 +7,20 @@ import (
 	"go.uber.org/zap"
 )
 
+//// if the request is either an entry from an intent log being replayed or part of the cross-check process,
+//// put that key in recovery mode (add/update the timestamp for the key in question)
+//func (c *Chronos) checkAndSetRecoveryMode(headers http.Header) {
+//	if c.request.RequestIsIntentLog(headers) || c.request.RequestIsCrosscheck(headers) {
+//		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
+//		key := c.request.GetKeyFromHeader(headers)
+//		// TODO: key might be nil
+//		c.logger.Info("Putting key in recovery mode", zap.String("key", key.String()))
+//		c.recoveryLock.Lock()
+//		c.recovering[key] = time.Now()
+//		c.recoveryLock.Unlock()
+//	}
+//}
+
 // put the given key in recovery mode or update the
 func (c *Chronos) setRecovering(key *coretypes.Key) {
 	if key == nil {
@@ -19,12 +33,16 @@ func (c *Chronos) setRecovering(key *coretypes.Key) {
 	c.recoveryLock.RUnlock()
 }
 
-// return true iff the given key is being recovered
+// return true iff the given key is being replayed
+// if key is nil, return true iff any key is being replayed
 func (c *Chronos) isRecovering(key *coretypes.Key) bool {
-	// don't even try to access the map
+	// return true iff any key is being recovered
 	if key == nil {
-		c.logger.Error("Attempted to check if a nil key is in recovery mode")
-		return false
+		c.recoveryLock.RLock()
+		n := len(c.recovering)
+		c.recoveryLock.RUnlock()
+
+		return n != 0
 	}
 
 	c.recoveryLock.RLock()
@@ -52,6 +70,7 @@ func (c *Chronos) checkAndExitRecovery() {
 		}
 		c.recoveryLock.RUnlock()
 
+		// remove keys that are no longer being replayed from the map
 		for _, k := range done {
 			c.logger.Debug("Exiting recovery", zap.String("key", k.String()))
 			c.recoveryLock.Lock()

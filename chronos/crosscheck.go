@@ -36,8 +36,14 @@ func (c *Chronos) crosscheck() {
 		time.Sleep(time.Second * 3)
 	}
 
-	// TODO: block this while receiving intent log entries -- there might be some data left to transfer for a key
-	//  this node no longer owns but should still send to others; for that to happen it must receive it all
+	// block the cross-check while receiving intent log entries
+	//  there might be some data left to transfer for a key
+	//  this node no longer owns but should still send to others;
+	//  for that to happen it must receive it all
+	if c.isRecovering(nil) {
+		c.logger.Debug("Delaying cross-check until ")
+		time.Sleep(time.Second * 3)
+	}
 
 	c.logger.Info("Starting cross-check task")
 
