@@ -101,7 +101,7 @@ func (c *Chronos) fsmCoordinateWrite(
 	// select the top N replicas for this key
 	nodes = nodes[:c.cfg.NumberOfReplicas]
 	c.logger.Debug(
-		"Writing metrics",
+		"Found nodes",
 		zap.String("key", key.String()),
 		zap.Strings("nodes", nodes),
 	)
@@ -126,12 +126,14 @@ func (c *Chronos) fsmForwardWrite(
 	metrics []byte,
 	forwardWriteResultsChan chan<- fsmForwardWriteResult,
 ) {
-	c.logger.Debug("Forwarding write",
+	status, response := c.forwardRequest(node, &http.Header{}, uri, key, metrics)
+	c.logger.Debug("Write response",
 		zap.String("key", key.String()),
 		zap.String("coordinator", c.cfg.NodeID),
 		zap.String("replica", node),
+		zap.Int("status", status),
+		zap.ByteString("response", response),
 	)
-	status, response := c.forwardRequest(node, &http.Header{}, uri, key, metrics)
 	forwardWriteResultsChan <- fsmForwardWriteResult{node: node, httpStatus: status, response: response}
 }
 
@@ -151,6 +153,7 @@ func (c *Chronos) fsmCheckWriteQuorum(
 	var responseOK, responseFail []byte
 	for i := 0; i < c.cfg.NumberOfReplicas; i++ {
 		result := <-forwardWriteResultsChan
+
 		if result.httpStatus >= 400 && result.httpStatus <= 499 {
 			// client side error, no point on trying to continue
 			c.logger.Error(
@@ -192,21 +195,25 @@ func (c *Chronos) fsmCheckWriteQuorum(
 	// we still succeeded if we wrote to enough nodes; just keep a local hint to replay later
 	if successfulWrites > 0 && successfulWrites >= c.cfg.WriteQuorum {
 		c.logger.Debug(
-			"Write quorum met; storing local intentLog",
+			"Write quorum met; storing intent log entries",
 			zap.Int("write_quorum", c.cfg.WriteQuorum),
 			zap.Int("successful_writes", successfulWrites),
 		)
 		// store local intentLog to replay later
 		for _, fail := range failures {
 			c.logger.Debug(
-				"Writing hint",
+				"Writing intent log entry",
 				zap.String("node", fail.node),
 				zap.String("key", key.String()),
 			)
 			err := c.fsmStoreHint(fail.node, uri, key, metrics)
 			if err != nil {
 				// if we can't store the hint the write effectively failed
-				c.logger.Error("Failed to write hint", zap.Error(err), zap.String("node", fail.node))
+				c.logger.Error(
+					"Failed to write intent log entry",
+					zap.Error(err),
+					zap.String("node", fail.node),
+				)
 				resultsChan <- fsmWriteResult{
 					key:        key,
 					httpStatus: fail.httpStatus,

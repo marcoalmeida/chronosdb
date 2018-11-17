@@ -417,5 +417,11 @@ func (c *Chronos) forwardRequest(
 	key *coretypes.Key,
 	payload []byte,
 ) (int, []byte) {
-	return c.request.Forward(c.cfg.NodeID, headers, uri, key, payload)
+	c.logger.Debug("Forwarding write",
+		zap.String("key", key.String()),
+		zap.String("coordinator", c.cfg.NodeID),
+		zap.String("replica", node),
+	)
+
+	return c.request.Forward(node, headers, uri, key, payload)
 }
