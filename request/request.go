@@ -138,7 +138,7 @@ func (r *Request) SetIntentLogHeaders(key *coretypes.Key, headers *http.Header) 
 
 // return true iff the current request is being replayed from and intent log
 func (r *Request) RequestIsIntentLog(headers http.Header) bool {
-	return headers.Get(headerXIntentLog) == ""
+	return headers.Get(headerXIntentLog) == "true"
 }
 
 // GetKeyFromHeader extracts the key name from a request's header and returns a *Key instance
