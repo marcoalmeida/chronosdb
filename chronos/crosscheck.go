@@ -241,7 +241,7 @@ func (c *Chronos) crosscheckMarker(key *coretypes.Key) string {
 }
 
 // persist the key to disk to indicate it's being transferred
-func (c *Chronos) crosscheckReceiving(key *coretypes.Key) error {
+func (c *Chronos) crosscheckReceive(key *coretypes.Key) error {
 	marker := c.crosscheckMarker(key)
 	c.logger.Debug(
 		"Creating cross-check marker directory",
@@ -264,7 +264,7 @@ func (c *Chronos) crosscheckReceiving(key *coretypes.Key) error {
 }
 
 // remove the marker that indicates that a key is being transferred
-func (c *Chronos) crosscheckCompleted(key *coretypes.Key) error {
+func (c *Chronos) crosscheckComplete(key *coretypes.Key) error {
 	marker := c.crosscheckMarker(key)
 	c.logger.Debug(
 		"Removing cross-check marker directory",
@@ -284,4 +284,11 @@ func (c *Chronos) crosscheckCompleted(key *coretypes.Key) error {
 	}
 
 	return nil
+}
+
+// return true iff a key is being received
+func (c *Chronos) crosscheckIsReceiving(key *coretypes.Key) bool {
+	marker := c.crosscheckMarker(key)
+	_, err := os.Stat(marker)
+	return !os.IsNotExist(err)
 }

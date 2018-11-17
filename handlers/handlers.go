@@ -170,19 +170,15 @@ func key(env *Env, r *http.Request) *Response {
 	key := coretypes.KeyFromString(k)
 	switch r.Method {
 	case "GET":
-		keyExists, err := env.Chronos.DoesKeyExist(key)
+		keyStatus, err := env.Chronos.GetKeyStatus(key)
 		if err != nil {
 			return internalError(err)
 		}
 
-		if keyExists {
-			return &Response{status: http.StatusOK, data: nil, jsonData: responsetypes.OK{Result: "ok"}}
-		} else {
-			return &Response{
-				status:   http.StatusNotFound,
-				data:     nil,
-				jsonData: responsetypes.Error{Message: "key not found"},
-			}
+		return &Response{
+			status:   http.StatusOK,
+			data:     nil,
+			jsonData: keyStatus,
 		}
 	case "PUT":
 		// mark key as successfully transferred

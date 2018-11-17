@@ -26,3 +26,16 @@ type NodeStatus struct {
 	Recovering   map[*coretypes.Key]time.Time `json:"recovering"`
 	Initializing bool                         `json:"initializing"`
 }
+
+// status of a key
+type KeyStatus string
+
+const (
+	KeyAbsent       KeyStatus = "absent"
+	KeyTransferring KeyStatus = "transferring"
+	KeyPresent      KeyStatus = "present"
+)
+
+type KeyGet struct {
+	Status KeyStatus
+}

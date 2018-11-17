@@ -293,7 +293,7 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 		key := c.request.GetKeyFromHeader(headers)
 		c.setRecovering(key)
 		// persist the key to disk
-		err := c.crosscheckReceiving(key)
+		err := c.crosscheckReceive(key)
 		// we should not accept the write if we can't acknowledge the request to cross-check a key
 		if err != nil {
 			return http.StatusServiceUnavailable, []byte(err.Error())
@@ -326,55 +326,44 @@ func (c *Chronos) Query(headers http.Header, uri string, form url.Values) (int, 
 
 // remove the marker that indicates a key transfer is in progress
 func (c *Chronos) KeyRecvCompleted(key *coretypes.Key) error {
-	return c.crosscheckCompleted(key)
+	return c.crosscheckComplete(key)
 }
 
-// TODO: return a rich structure with more state: exists, being transferred, nonexistent
-// TODO: check if a key is currently being transferred by querying the marker persisted to disk
-func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
-	// TODO
-	return true, nil
+// GetKeyStatus returns a data structure describing the current status the key: absent, transferring, present.
+func (c *Chronos) GetKeyStatus(key *coretypes.Key) (*responsetypes.KeyGet, error) {
+	// if a transfer is already in progress return true so that another one does not start
+	if c.crosscheckIsReceiving(key) {
+		c.logger.Debug("Receiving key transfer", zap.String("key", key.String()))
+		return &responsetypes.KeyGet{Status: responsetypes.KeyTransferring}, nil
+	}
 
-	//// if a transfer is already in progress return true so that another one does not start
-	//if c.keyRecvInProgress(key) {
-	//	c.logger.Debug("Recv in progress", zap.String("key", key.String()))
-	//	return true, nil
-	//}
-	//
-	//// if a transfer is not in progress but was started at some point and never completed, return false right now so
-	//// that it can restart (otherwise the check below would just return true and we have only part of the data)
-	//if c.keyRecvPending(key) {
-	//	c.logger.Debug("Recv pending", zap.String("key", key.String()))
-	//	return false, nil
-	//}
-	//
-	//dbs, err := c.influxDB.ShowDBs()
-	//if err != nil {
-	//	c.logger.Error(
-	//		"Failed to list DBs",
-	//		zap.Error(err),
-	//	)
-	//	return false, errors.New("failed to list databases")
-	//}
-	//
-	//for _, db := range dbs {
-	//	measurements, err := c.influxDB.ShowMeasurements(db)
-	//	if err != nil {
-	//		c.logger.Error(
-	//			"Failed to list measurements",
-	//			zap.Error(err),
-	//		)
-	//		return false, errors.New("failed to list measurements")
-	//	}
-	//
-	//	for _, m := range measurements {
-	//		if db == key.DB && m == key.Measurement {
-	//			return true, nil
-	//		}
-	//	}
-	//}
-	//
-	//return false, nil
+	dbs, err := c.influxDB.ShowDBs()
+	if err != nil {
+		c.logger.Error(
+			"Failed to list DBs",
+			zap.Error(err),
+		)
+		return nil, errors.New("failed to list databases")
+	}
+
+	for _, db := range dbs {
+		measurements, err := c.influxDB.ShowMeasurements(db)
+		if err != nil {
+			c.logger.Error(
+				"Failed to list measurements",
+				zap.Error(err),
+			)
+			return nil, errors.New("failed to list measurements")
+		}
+
+		for _, m := range measurements {
+			if db == key.DB && m == key.Measurement {
+				return &responsetypes.KeyGet{Status: responsetypes.KeyPresent}, nil
+			}
+		}
+	}
+
+	return &responsetypes.KeyGet{Status: responsetypes.KeyAbsent}, nil
 }
 
 // run in the background and periodically ping all replicas that should own the same keys this node holds to confirm
