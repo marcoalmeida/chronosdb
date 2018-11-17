@@ -69,20 +69,28 @@ type ILog struct {
 }
 
 func New(dataDir string, logger *zap.Logger) *ILog {
-	return &ILog{
+	ilog := &ILog{
 		dataDir: dataDir,
 		// assign a priority to each replica for which there's an intent log entry (higher ==> lower priority)
 		replicaPriority: make(map[string]int, 0),
 		logger:          logger,
 	}
+
+	// make sure the root directory is present
+	err := shared.EnsureDirectory(ilog.intentLogRootDirectory())
+	if err != nil {
+		logger.Error("Failed to create the intent log's root directory", zap.Error(err))
+	}
+
+	return ilog
 }
 
-func (i *ILog) intentLogRoot() string {
+func (i *ILog) intentLogRootDirectory() string {
 	return filepath.Join(i.dataDir, intentLogDirectoryName)
 }
 
 func (i *ILog) getPath(node string, dir string) string {
-	return filepath.Join(i.intentLogRoot(), node, dir)
+	return filepath.Join(i.intentLogRootDirectory(), node, dir)
 }
 
 func (i *ILog) tmpDir(node string) string {
@@ -154,7 +162,7 @@ func (i *ILog) Add(entry *Entry) error {
 // Fetch finds and returns an intent log entry (oldest one first) that should be replayed
 func (i *ILog) Fetch() (*Entry, error) {
 	// list dirs -- each one is a node
-	dirs, err := ioutil.ReadDir(i.intentLogRoot())
+	dirs, err := ioutil.ReadDir(i.intentLogRootDirectory())
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +244,7 @@ func (i *ILog) Remove(contents *Entry) error {
 func (i *ILog) RemoveStale(cluster []string) {
 	i.logger.Info("Starting the removal of stale intent log entries...")
 
-	targets, err := ioutil.ReadDir(i.intentLogRoot())
+	targets, err := ioutil.ReadDir(i.intentLogRootDirectory())
 	if err != nil {
 		i.logger.Error("Failed to open the intent log", zap.Error(err))
 		return
@@ -251,7 +259,7 @@ func (i *ILog) RemoveStale(cluster []string) {
 			}
 		}
 		if !exists {
-			path := filepath.Join(i.intentLogRoot(), t.Name())
+			path := filepath.Join(i.intentLogRootDirectory(), t.Name())
 			i.logger.Info(
 				"Removing entry",
 				zap.String("node", t.Name()),
@@ -278,7 +286,7 @@ func (i *ILog) RestoreDangling() {
 	// move dangling files from the `processing` directory back to `new` for re-processing
 	i.logger.Info("Starting recovery of dangling intent log entries...")
 
-	nodes, err := ioutil.ReadDir(i.intentLogRoot())
+	nodes, err := ioutil.ReadDir(i.intentLogRootDirectory())
 	if err != nil {
 		i.logger.Error("Failed to read the intent log directory", zap.Error(err))
 		return
