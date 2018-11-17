@@ -121,17 +121,7 @@ func validateConfig(cfg *ChronosCfg) error {
 	}
 
 	if cfg.WriteQuorum > cfg.NumberOfReplicas {
-		return errors.New("number of replicas must be less or equal to the qrite quorum")
-	}
-
-	// the recovery grace period should be 2x higher than the hints handoff interval and the key transfer
-	// interval to make sure we don't exit recovery mode *before* hints start to be replayed
-	if !((cfg.ReplayInterval * 2) <= cfg.RecoveryGracePeriod) {
-		return errors.New("the recovery grace period should be at least 2x larger than the handoff interval")
-	}
-
-	if !((cfg.CrossCheckSendInterval * 2) <= cfg.RecoveryGracePeriod) {
-		return errors.New("the recovery grace period should be at least 2x larger than the key transfer interval")
+		return errors.New("number of replicas must be less or equal to the write quorum")
 	}
 
 	return nil

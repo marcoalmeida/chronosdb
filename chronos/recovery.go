@@ -7,20 +7,6 @@ import (
 	"go.uber.org/zap"
 )
 
-//// if the request is either an entry from an intent log being replayed or part of the cross-check process,
-//// put that key in recovery mode (add/update the timestamp for the key in question)
-//func (c *Chronos) checkAndSetRecoveryMode(headers http.Header) {
-//	if c.request.RequestIsIntentLog(headers) || c.request.RequestIsCrosscheck(headers) {
-//		// both hinted hand offs and key transfers include the key name in the query string, so this is safe
-//		key := c.request.GetKeyFromHeader(headers)
-//		// TODO: key might be nil
-//		c.logger.Info("Putting key in recovery mode", zap.String("key", key.String()))
-//		c.recoveryLock.Lock()
-//		c.recovering[key] = time.Now()
-//		c.recoveryLock.Unlock()
-//	}
-//}
-
 // put the given key in recovery mode or update the
 func (c *Chronos) setRecovering(key *coretypes.Key) {
 	if key == nil {

@@ -13,7 +13,7 @@ handoff_interval = 30
 # key_transfer_batch_size = 10000 # number of metrics to batch on each request while transferring a key
 # key_recv_timeout = 60 # time after which a node will assume a key transfer is no longer in progress
 # time (in seconds) to wait before leaving write-only mode/consider recovery completed, after the last write
-# request from a hinted handoff or key transfer
+# request from an intent log entry or the cross-check process
 recovery_grace_period = 60
 # maximum amount of time to wait for a connection to complete
 connect_timeout = 500 # ms

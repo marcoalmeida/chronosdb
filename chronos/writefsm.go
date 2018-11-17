@@ -192,7 +192,7 @@ func (c *Chronos) fsmCheckWriteQuorum(
 	}
 
 	successfulWrites := c.cfg.NumberOfReplicas - len(failures)
-	// we still succeeded if we wrote to enough nodes; just keep a local hint to replay later
+	// we still succeeded if we wrote to enough nodes; just add an entry to the intent log and replay later
 	if successfulWrites > 0 && successfulWrites >= c.cfg.WriteQuorum {
 		c.logger.Debug(
 			"Write quorum met; storing intent log entries",
@@ -208,7 +208,7 @@ func (c *Chronos) fsmCheckWriteQuorum(
 			)
 			err := c.fsmStoreHint(fail.node, uri, key, metrics)
 			if err != nil {
-				// if we can't store the hint the write effectively failed
+				// if we can't store the intent log entry the write effectively failed
 				c.logger.Error(
 					"Failed to write intent log entry",
 					zap.Error(err),
@@ -235,7 +235,7 @@ func (c *Chronos) fsmCheckWriteQuorum(
 	}
 }
 
-// write the payload to the local file system as a hint to be replayed later
+// write the payload to the local file system as an intent log entry to be replayed later
 func (c *Chronos) fsmStoreHint(
 	node string,
 	uri string,
