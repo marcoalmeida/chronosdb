@@ -216,13 +216,23 @@ func write(env *Env, r *http.Request) *Response {
 			data:     nil,
 			jsonData: responsetypes.Error{Message: err.Error()},
 		}
-	} else {
-		status, response := env.Chronos.Write(r.Header, r.URL.RequestURI(), r.URL.Query(), payload)
+	}
+
+	// we cannot allow an empty payload -- need a measurement to build a key
+	if len(payload) == 0 {
+		env.Logger.Error("Received an empty body", zap.Error(err))
 		return &Response{
-			status:   status,
-			data:     response,
-			jsonData: nil,
+			status:   http.StatusBadRequest,
+			data:     nil,
+			jsonData: responsetypes.Error{Message: "empty body"},
 		}
+	}
+
+	status, response := env.Chronos.Write(r.Header, r.URL.RequestURI(), r.URL.Query(), payload)
+	return &Response{
+		status:   status,
+		data:     response,
+		jsonData: nil,
 	}
 }
 

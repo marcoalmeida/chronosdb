@@ -275,6 +275,7 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 	// if the request is either an entry from an intent log being replayed,
 	// put the node in recovery mode for that key
 	if c.request.RequestIsIntentLog(headers) {
+		c.logger.Debug("Handling intent log write")
 		key := c.request.GetKeyFromHeader(headers)
 		c.setRecovering(key)
 	}
@@ -288,6 +289,7 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 	// instead persist to disk once it starts receiving it and delete it only after receiving an ack from the source
 	// confirming it's all done;
 	if c.request.RequestIsCrosscheck(headers) {
+		c.logger.Debug("Handling cross-check write")
 		// if receiving data during the cross-check process the node should also enter recovery mode
 		// for the key being transferred
 		key := c.request.GetKeyFromHeader(headers)
