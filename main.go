@@ -11,7 +11,7 @@ import (
 
 	"github.com/marcoalmeida/chronosdb/chronos"
 	"github.com/marcoalmeida/chronosdb/config"
-	"github.com/marcoalmeida/chronosdb/handler"
+	"github.com/marcoalmeida/chronosdb/handlers"
 	"github.com/marcoalmeida/chronosdb/influxdb"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -98,11 +98,11 @@ func main() {
 
 // setup handlers, listen and serve ChronosDB
 func serve(app *app) {
-	env := &handler.Env{
+	env := &handlers.Env{
 		Chronos: app.chronos,
 		Logger:  app.logger,
 	}
-	handler.Register(env)
+	handlers.Register(env)
 
 	app.logger.Info(
 		"Ready to listen",
