@@ -1,12 +1,16 @@
 package chronos
 
 import (
+	"errors"
 	"math/rand"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
 	"github.com/marcoalmeida/chronosdb/influxdb"
+	"github.com/marcoalmeida/chronosdb/shared"
 	"go.uber.org/zap"
 )
 
@@ -28,6 +32,14 @@ import (
 // the target replica will eventually start replying with "key missing" when asked if it's there.
 // if this process runs continuously then some other replica will eventually check for that and start sending the
 // data
+
+// directory under which to store cross-check related information
+const (
+	// main directory
+	crosscheckDirectory string = "cross-check"
+	// markers for keys being received
+	crosscheckReceiving string = "recv"
+)
 
 func (c *Chronos) crosscheck() {
 	// block indefinitely while the node is initializing
@@ -152,7 +164,7 @@ func (c *Chronos) crosscheckSend(replica string, keys []*coretypes.Key) {
 	}
 }
 
-// TODO: rate limiting
+// TODO: rate limiting (MB/s)
 // read the local InfluxDB, obtain the stored metrics in line protocol format, and forward them to the intended replica
 // signal the replica once all data has been successfully send
 func (c *Chronos) crosscheckSendKey(replica string, key *coretypes.Key) {
@@ -222,4 +234,54 @@ func (c *Chronos) crosscheckSendKey(replica string, key *coretypes.Key) {
 			)
 		}
 	}
+}
+
+func (c *Chronos) crosscheckMarker(key *coretypes.Key) string {
+	return filepath.Join(c.cfg.DataDirectory, crosscheckDirectory, crosscheckReceiving, key.String())
+}
+
+// persist the key to disk to indicate it's being transferred
+func (c *Chronos) crosscheckReceiving(key *coretypes.Key) error {
+	marker := c.crosscheckMarker(key)
+	c.logger.Debug(
+		"Creating cross-check marker directory",
+		zap.String("key", key.String()),
+		zap.String("marker", marker),
+	)
+
+	err := shared.EnsureDirectory(marker)
+	if err != nil {
+		c.logger.Error(
+			"Failed to create cross-check key marker",
+			zap.String("key", key.String()),
+			zap.Error(err),
+		)
+
+		return errors.New("failed to acknowledge cross-check")
+	}
+
+	return nil
+}
+
+// remove the marker that indicates that a key is being transferred
+func (c *Chronos) crosscheckCompleted(key *coretypes.Key) error {
+	marker := c.crosscheckMarker(key)
+	c.logger.Debug(
+		"Removing cross-check marker directory",
+		zap.String("key", key.String()),
+		zap.String("marker", marker),
+	)
+
+	err := os.Remove(marker)
+	if err != nil {
+		c.logger.Error(
+			"Failed to remove cross-check key marker",
+			zap.String("key", key.String()),
+			zap.Error(err),
+		)
+
+		return errors.New("failed to complete cross-check")
+	}
+
+	return nil
 }

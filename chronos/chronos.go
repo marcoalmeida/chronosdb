@@ -292,8 +292,12 @@ func (c *Chronos) Write(headers http.Header, uri string, form url.Values, payloa
 		// for the key being transferred
 		key := c.request.GetKeyFromHeader(headers)
 		c.setRecovering(key)
-		// TODO: persist this to disk
-
+		// persist the key to disk
+		err := c.crosscheckReceiving(key)
+		// we should not accept the write if we can't acknowledge the request to cross-check a key
+		if err != nil {
+			return http.StatusServiceUnavailable, []byte(err.Error())
+		}
 	}
 
 	return c.fsmStartWrite(headers, uri, form, payload)
@@ -307,7 +311,7 @@ func (c *Chronos) Query(headers http.Header, uri string, form url.Values) (int, 
 
 	// TODO: distinguish between a request we should just pass through and one that ChronosDB needs to act on
 	//  a key won't even exist on most of them
-
+	// TODO: if this node is coordinating there will be no key in the headers
 	// if the node is in recovering mode for the key being queried we can't proceed
 	key := c.request.GetKeyFromHeader(headers)
 	// TODO: this does not seem to be a good test condition after the code revamp
@@ -322,12 +326,11 @@ func (c *Chronos) Query(headers http.Header, uri string, form url.Values) (int, 
 
 // remove the marker that indicates a key transfer is in progress
 func (c *Chronos) KeyRecvCompleted(key *coretypes.Key) error {
-	// TODO
-	// return c.endKeyRecv(key)
-	return nil
+	return c.crosscheckCompleted(key)
 }
 
-// TODO: cache results (when safe)
+// TODO: return a rich structure with more state: exists, being transferred, nonexistent
+// TODO: check if a key is currently being transferred by querying the marker persisted to disk
 func (c *Chronos) DoesKeyExist(key *coretypes.Key) (bool, error) {
 	// TODO
 	return true, nil
