@@ -12,6 +12,7 @@ import (
 
 	"github.com/marcoalmeida/chronosdb/coretypes"
 	"github.com/marcoalmeida/chronosdb/mapsort"
+	"github.com/marcoalmeida/chronosdb/shared"
 	"go.uber.org/zap"
 )
 
@@ -102,11 +103,11 @@ func (i *ILog) Add(entry *Entry) error {
 	tmpDir := i.tmpDir(entry.Node)
 	newDir := i.newDir(entry.Node)
 
-	if err := ensureDirectory(tmpDir); err != nil {
+	if err := shared.EnsureDirectory(tmpDir); err != nil {
 		return err
 	}
 
-	if err := ensureDirectory(newDir); err != nil {
+	if err := shared.EnsureDirectory(newDir); err != nil {
 		return err
 	}
 
@@ -179,7 +180,7 @@ func (i *ILog) Fetch() (*Entry, error) {
 			f := entries[0]
 			// move to "processing"
 			processingDir := i.processingDir(node)
-			if err := ensureDirectory(processingDir); err != nil {
+			if err := shared.EnsureDirectory(processingDir); err != nil {
 				return nil, err
 			}
 			fProcessing, err := ioutil.TempFile(processingDir, "")
@@ -339,16 +340,4 @@ func (i *ILog) ReAdd(entry *Entry) {
 	if err != nil {
 		i.logger.Error("Failed to reset chunk", zap.Error(err))
 	}
-}
-
-// create a directory structure if it does not yet exist (or return an error trying)
-func ensureDirectory(path string) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		err := os.MkdirAll(path, 0755)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

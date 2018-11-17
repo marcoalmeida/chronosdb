@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -35,6 +36,18 @@ func Backoff(i int, caller string, logger *zap.Logger) {
 	wait = rand.Int63n(wait * 100)
 	logger.Debug("Exponential back off", zap.Int64("ms", wait), zap.String("caller", caller))
 	time.Sleep(time.Duration(wait) * time.Millisecond)
+}
+
+// EnsureDirectory creates a directory structure (or returns an error trying) iff one does not already exist.
+func EnsureDirectory(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		err := os.MkdirAll(path, 0755)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // NewHTTPClient initializes and returns an HTTP client instance with connect and client timeout settings
