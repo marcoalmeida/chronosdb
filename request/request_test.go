@@ -8,12 +8,17 @@ import (
 	"go.uber.org/zap"
 )
 
-const testPort = 42
+const (
+	testNode       = "node"
+	testPort       = 42
+	testTimeout    = 1
+	testMaxRetries = 1
+)
 
 var logger = zap.NewNop()
 
 func TestRequest_GenerateForwardURL(t *testing.T) {
-	r := New(testPort, logger)
+	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
 
 	node := "chronos.host"
 	uri := []string{"", "/write?db=db"}
@@ -34,7 +39,7 @@ func TestRequest_GenerateForwardURL(t *testing.T) {
 }
 
 func TestRequest_SetForwardHeaders(t *testing.T) {
-	r := New(testPort, logger)
+	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
 
 	headers := http.Header{}
 	r.SetForwardHeaders(nil, &headers)
@@ -54,7 +59,7 @@ func TestRequest_SetForwardHeaders(t *testing.T) {
 }
 
 func TestRequest_NodeIsCoordinator(t *testing.T) {
-	r := New(testPort, logger)
+	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
 
 	headers := http.Header{}
 
@@ -69,7 +74,7 @@ func TestRequest_NodeIsCoordinator(t *testing.T) {
 }
 
 func TestRequest_SetCrosscheckHeaders(t *testing.T) {
-	r := New(testPort, logger)
+	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
 
 	headers := http.Header{}
 	r.SetCrosscheckHeaders(nil, &headers)
@@ -93,7 +98,7 @@ func TestRequest_SetCrosscheckHeaders(t *testing.T) {
 }
 
 func TestRequest_RequestIsCrosscheck(t *testing.T) {
-	r := New(testPort, logger)
+	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
 
 	headers := http.Header{}
 
@@ -110,7 +115,7 @@ func TestRequest_RequestIsCrosscheck(t *testing.T) {
 // TODO: test the intent log functions
 
 func TestRequest_GetKeyFromRequest(t *testing.T) {
-	r := New(testPort, logger)
+	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
 
 	headers := http.Header{}
 
