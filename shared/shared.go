@@ -20,7 +20,10 @@ func Min(a int, b int) int {
 	return b
 }
 
-// exponential backoff
+// Backoff sleeps for random(0, 2^i*100) milliseconds and can be used for exponentially backing off by calling it with
+// increasingly high values for i. The random factor is used to introduce jitter and avoid deterministic wait periods
+// between retries. The parameter caller is free text string used to identify the function calling Backoff, and logger
+// is a pointer to an already initialized instance of zap.Logger.
 func Backoff(i int, caller string, logger *zap.Logger) {
 	// 2^i -- this will always be used for very small values (number of retries), so the signed/unsigned type casts
 	// are safe
@@ -34,7 +37,7 @@ func Backoff(i int, caller string, logger *zap.Logger) {
 	time.Sleep(time.Duration(wait) * time.Millisecond)
 }
 
-// initialize and return an HTTP client instance
+// NewHTTPClient initializes and returns an HTTP client instance with connect and client timeout settings
 func NewHTTPClient(connectTimeout int, clientTimeout int) *http.Client {
 	tr := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
