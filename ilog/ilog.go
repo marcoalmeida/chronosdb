@@ -3,7 +3,6 @@ package ilog
 import (
 	"bytes"
 	"compress/gzip"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -79,7 +78,7 @@ func New(dataDir string, logger *zap.Logger) *ILog {
 }
 
 func (i *ILog) intentLogRoot() string {
-	return fmt.Sprintf("%s/%s", i.dataDir, intentLogDirectoryName)
+	return filepath.Join(i.dataDir, intentLogDirectoryName)
 }
 
 func (i *ILog) getPath(node string, dir string) string {
