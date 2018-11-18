@@ -81,7 +81,7 @@ func TestRequest_SetCrosscheckHeaders(t *testing.T) {
 	if headers.Get(headerXCrosscheck) != "true" {
 		t.Error("Expected a cross-check header")
 	}
-	// there should be a header for the key, with and empty string value
+	// there should be a header for the key with an empty string value
 	if headers.Get(headerXKey) != "" {
 		t.Error("Expected a header for the key with an empty value, got", headers.Get(headerXKey))
 	}
@@ -112,7 +112,44 @@ func TestRequest_RequestIsCrosscheck(t *testing.T) {
 	}
 }
 
-// TODO: test the intent log functions
+func TestRequest_SetIntentLogHeaders(t *testing.T) {
+	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
+
+	headers := http.Header{}
+	r.SetIntentLogHeaders(nil, &headers)
+	if headers.Get(headerXIntentLog) != "true" {
+		t.Error("Expected an intent log header")
+	}
+	// there should be a header for the key with an empty string value
+	if headers.Get(headerXKey) != "" {
+		t.Error("Expected a header for the key with an empty value, got", headers.Get(headerXKey))
+	}
+
+	// now with a valid key
+	k := coretypes.NewKey("db", "m")
+	r.SetForwardHeaders(k, &headers)
+	if headers.Get(headerXIntentLog) != "true" {
+		t.Error("Expected an intent log header")
+	}
+	if headers.Get(headerXKey) != k.String() {
+		t.Error("Expected a header with key", k.String(), "got", headers.Get(headerXKey))
+	}
+}
+
+func TestRequest_RequestIsIntentLog(t *testing.T) {
+	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
+
+	headers := http.Header{}
+
+	if r.RequestIsIntentLog(headers) {
+		t.Error("Unexpectedly found intent log header, got", r.RequestIsIntentLog(headers))
+	}
+
+	r.SetForwardHeaders(nil, &headers)
+	if r.RequestIsIntentLog(headers) {
+		t.Error("Expected to find intent log header, got", r.RequestIsIntentLog(headers))
+	}
+}
 
 func TestRequest_GetKeyFromRequest(t *testing.T) {
 	r := New(testNode, testPort, testTimeout, testTimeout, testMaxRetries, logger)
