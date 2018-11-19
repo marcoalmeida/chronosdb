@@ -13,6 +13,27 @@ import (
 	"go.uber.org/zap"
 )
 
+// extract the name of the function that called the one that called this one
+// benchmarks say ~1000ns/op
+func getCaller(logger *zap.Logger) string {
+	caller := ""
+
+	// skip 2 frames because we need the name of the function calling this function
+	pc, _, _, ok := runtime.Caller(2)
+	if ok {
+		details := runtime.FuncForPC(pc)
+		if details != nil {
+			caller = details.Name()
+		} else {
+			logger.Error("Failed to get details from runtime.FuncForPC")
+		}
+	} else {
+		logger.Error("Failed to get PC from runtime.Caller")
+	}
+
+	return caller
+}
+
 // Min returns the smallest of two integers
 func Min(a int, b int) int {
 	if a < b {
@@ -26,20 +47,9 @@ func Min(a int, b int) int {
 // increasingly high values for i. The random factor is used to introduce jitter and avoid deterministic wait periods
 // between retries. The parameter logger is a pointer to an already initialized instance of zap.Logger.
 func Backoff(i int, logger *zap.Logger) {
-	// get the name of the caller function
-	// benchmarks say ~1200ns/op; given that this function will sleep for at least 100ms,
-	// the added overhead is mostly irrelevant
-	caller := "unknown"
-	pc, _, _, ok := runtime.Caller(1)
-	if ok {
-		details := runtime.FuncForPC(pc)
-		if details != nil {
-			caller = details.Name()
-		} else {
-			logger.Error("Failed to get details from runtime.FuncForPC")
-		}
-	} else {
-		logger.Error("Failed to get PC from runtime.Caller")
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
 	}
 
 	// 2^i -- this will always be used for very small values (number of retries), so the signed/unsigned type casts

@@ -67,3 +67,13 @@ func TestEnsureDirectory(t *testing.T) {
 		t.Error("Failed to cleanup:", err)
 	}
 }
+
+func Test_getCaller(t *testing.T) {
+	logger := zap.NewNop()
+
+	expected := "testing.tRunner"
+	caller := getCaller(logger)
+	if caller != expected {
+		t.Error("Failed to get caller. Expected", expected, ", got", caller)
+	}
+}
