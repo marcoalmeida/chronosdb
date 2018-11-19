@@ -35,7 +35,7 @@ func TestBackoff(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		start := time.Now()
-		Backoff(0, "", logger)
+		Backoff(0, logger)
 		wait := time.Since(start).Nanoseconds() / int64(time.Millisecond)
 
 		if !(wait >= 0 && wait < int64((i+1)*100)) {

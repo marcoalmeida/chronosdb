@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"go.uber.org/zap"
@@ -23,9 +24,24 @@ func Min(a int, b int) int {
 
 // Backoff sleeps for random(0, 2^i*100) milliseconds and can be used for exponentially backing off by calling it with
 // increasingly high values for i. The random factor is used to introduce jitter and avoid deterministic wait periods
-// between retries. The parameter caller is free text string used to identify the function calling Backoff, and logger
-// is a pointer to an already initialized instance of zap.Logger.
-func Backoff(i int, caller string, logger *zap.Logger) {
+// between retries. The parameter logger is a pointer to an already initialized instance of zap.Logger.
+func Backoff(i int, logger *zap.Logger) {
+	// get the name of the caller function
+	// benchmarks say ~1200ns/op; given that this function will sleep for at least 100ms,
+	// the added overhead is mostly irrelevant
+	caller := "unknown"
+	pc, _, _, ok := runtime.Caller(1)
+	if ok {
+		details := runtime.FuncForPC(pc)
+		if details != nil {
+			caller = details.Name()
+		} else {
+			logger.Error("Failed to get details from runtime.FuncForPC")
+		}
+	} else {
+		logger.Error("Failed to get PC from runtime.Caller")
+	}
+
 	// 2^i -- this will always be used for very small values (number of retries), so the signed/unsigned type casts
 	// are safe
 	var wait int64 = 1
@@ -108,7 +124,7 @@ func sendHTTPRequest(
 				zap.Error(err),
 				zap.String("caller", caller),
 			)
-			Backoff(i, caller, logger)
+			Backoff(i, logger)
 			continue
 		}
 
@@ -116,7 +132,7 @@ func sendHTTPRequest(
 		resp.Body.Close()
 		if err != nil {
 			logger.Debug("Failed to read the response body", zap.Error(err), zap.String("caller", caller))
-			Backoff(i, caller, logger)
+			Backoff(i, logger)
 			continue
 		}
 
@@ -132,7 +148,7 @@ func sendHTTPRequest(
 			if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
 				// save for return
 				status = resp.StatusCode
-				Backoff(i, caller, logger)
+				Backoff(i, logger)
 			}
 		}
 	}
