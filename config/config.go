@@ -28,10 +28,9 @@ const (
 // possible locations for the configuration file, in order ot preference
 var defaultCfgPaths []string = []string{"/etc/chronosdb.toml", "chronosdb.toml"}
 
-// TODO: match configuration directives to field names
 type ChronosCfg struct {
-	ListenIP               string `toml:"listen_ip"`
-	Port                   int64
+	ListenIP               string             `toml:"listen_ip"`
+	Port                   int64              `toml:"port"`
 	EnableDebug            bool               `toml:"enable_debug"`
 	DataDirectory          string             `toml:"data_dir"`
 	Nodes                  map[string]float64 `toml:"nodes"`
@@ -39,10 +38,10 @@ type ChronosCfg struct {
 	NumberOfReplicas       int                `toml:"n_replicas"`
 	WriteQuorum            int                `toml:"write_quorum"`
 	ReadQuorum             int                `toml:"read_quorum"`
-	ReplayInterval         int                `toml:"handoff_interval"`
-	CrossCheckSendInterval int                `toml:"key_transfer_interval"`
-	CrossCheckBatchSize    int                `toml:"key_transfer_batch_size"`
-	CrossCheckRecvTimeout  int                `toml:"key_recv_timeout"`
+	ReplayInterval         int                `toml:"replay_interval"`
+	CrossCheckSendInterval int                `toml:"cross_check_interval"`
+	CrossCheckBatchSize    int                `toml:"cross_check_batch_size"`
+	CrossCheckRecvTimeout  int                `toml:"cross_check_recv_timeout"`
 	RecoveryGracePeriod    int                `toml:"recovery_grace_period"`
 	ConnectTimeout         int                `toml:"connect_timeout"`
 	ClientTimeout          int                `toml:"client_timeout"`
