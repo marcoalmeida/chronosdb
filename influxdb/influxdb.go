@@ -87,7 +87,7 @@ func New(cfg *Cfg, logger *zap.Logger) *InfluxDB {
 
 func (idb *InfluxDB) IsAlive() bool {
 	u := idb.createURL("/ping", "", false)
-	status, _ := shared.DoGet(u, nil, idb.httpClient, idb.cfg.MaxRetries, idb.logger, "influxdb.IsAlive")
+	status, _ := shared.DoGet(u, nil, idb.httpClient, idb.cfg.MaxRetries, idb.logger)
 
 	return status >= 200 && status <= 299
 }
@@ -137,7 +137,6 @@ func (idb *InfluxDB) ShowDBs() ([]string, error) {
 		idb.httpClient,
 		idb.cfg.MaxRetries,
 		idb.logger,
-		"influxdb.ShowDBs",
 	)
 	if !(status >= 200 && status <= 299) {
 		return nil, idb.handleHTTPError(response)
@@ -184,7 +183,6 @@ func (idb *InfluxDB) ShowMeasurements(db string) ([]string, error) {
 		idb.httpClient,
 		idb.cfg.MaxRetries,
 		idb.logger,
-		"influxdb.ShowMeasurements",
 	)
 	if !(status >= 200 && status <= 299) {
 		return nil, idb.handleHTTPError(response)
@@ -228,7 +226,6 @@ func (idb *InfluxDB) ShowFieldKeys(db string, measurement string) (mapset.Set, e
 		idb.httpClient,
 		idb.cfg.MaxRetries,
 		idb.logger,
-		"influxdb.ShowTagKeys",
 	)
 	if !(status >= 200 && status <= 299) {
 		return nil, idb.handleHTTPError(response)
@@ -272,7 +269,6 @@ func (idb *InfluxDB) createOrDropDB(db string, action string) error {
 		idb.httpClient,
 		idb.cfg.MaxRetries,
 		idb.logger,
-		"influxdb.createOrDropDB",
 	)
 
 	if !(status >= 200 && status <= 299) {
@@ -309,7 +305,6 @@ func (idb *InfluxDB) Write(uri string, db string, metrics []byte) (int, []byte) 
 		idb.httpClient,
 		idb.cfg.MaxRetries,
 		idb.logger,
-		"influxdb.Write",
 	)
 }
 
@@ -328,7 +323,6 @@ func (idb *InfluxDB) Query(uri string, form url.Values) (int, []byte) {
 		idb.httpClient,
 		idb.cfg.MaxRetries,
 		idb.logger,
-		"influxdb.Query",
 	)
 }
 
@@ -384,7 +378,6 @@ func (idb *InfluxDB) QueryToLineProtocol(db string, measurement string, limit in
 		idb.httpClient,
 		idb.cfg.MaxRetries,
 		idb.logger,
-		"influxdb.QueryToLineProtocol",
 	)
 
 	if !(status >= 200 && status <= 299) {

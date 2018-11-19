@@ -75,7 +75,7 @@ func (r *Request) Forward(
 		*headers,
 		r.httpClient,
 		r.maxRetries,
-		r.logger, "chronos.forwardRequest",
+		r.logger,
 	)
 }
 

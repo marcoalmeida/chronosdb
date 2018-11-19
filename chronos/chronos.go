@@ -217,7 +217,6 @@ func (c *Chronos) createOrDropDB(
 						c.httpClient,
 						c.cfg.MaxRetries,
 						c.logger,
-						"chronos.DropDB",
 					)
 				case "CREATE":
 					status, response = shared.DoPut(
@@ -227,7 +226,6 @@ func (c *Chronos) createOrDropDB(
 						c.httpClient,
 						c.cfg.MaxRetries,
 						c.logger,
-						"chronos.CreateDB",
 					)
 				}
 

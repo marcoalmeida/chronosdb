@@ -178,8 +178,12 @@ func DoGet(
 	client *http.Client,
 	maxRetries int,
 	logger *zap.Logger,
-	caller string,
 ) (int, []byte) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	return sendHTTPRequest(url, nil, headers, "GET", client, maxRetries, logger, caller)
 }
 
@@ -190,8 +194,12 @@ func DoPost(
 	client *http.Client,
 	maxRetries int,
 	logger *zap.Logger,
-	caller string,
 ) (int, []byte) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	return sendHTTPRequest(url, payload, headers, "POST", client, maxRetries, logger, caller)
 }
 
@@ -202,8 +210,12 @@ func DoPut(
 	client *http.Client,
 	maxRetries int,
 	logger *zap.Logger,
-	caller string,
 ) (int, []byte) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	return sendHTTPRequest(url, payload, headers, "PUT", client, maxRetries, logger, caller)
 }
 
@@ -214,7 +226,11 @@ func DoDelete(
 	client *http.Client,
 	maxRetries int,
 	logger *zap.Logger,
-	caller string,
 ) (int, []byte) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	return sendHTTPRequest(url, payload, headers, "DELETE", client, maxRetries, logger, caller)
 }

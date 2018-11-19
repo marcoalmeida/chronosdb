@@ -36,7 +36,6 @@ func (g *Gossip) AskHasKey(node string, key *coretypes.Key) (bool, error) {
 		g.httpClient,
 		g.maxRetries,
 		g.logger,
-		"gossip.AskHasKey",
 	)
 
 	switch status {
@@ -64,7 +63,6 @@ func (g *Gossip) TellHasKey(node string, key *coretypes.Key) error {
 		g.httpClient,
 		g.maxRetries,
 		g.logger,
-		"gossip.TellHasKey",
 	)
 
 	switch status {
@@ -90,7 +88,6 @@ func (g *Gossip) GetDBs(node string) (*responsetypes.GetDBs, error) {
 		g.httpClient,
 		g.maxRetries,
 		g.logger,
-		"gossip.GetDBs()",
 	)
 	if !(status >= 200 && status <= 299) {
 		return nil, errors.New(string(response))
