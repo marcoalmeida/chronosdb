@@ -7,10 +7,32 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// extract the name of the function that called the one that called this one
+// benchmarks say ~1000ns/op
+func getCaller(logger *zap.Logger) string {
+	caller := ""
+
+	// skip 2 frames because we need the name of the function calling this function
+	pc, _, _, ok := runtime.Caller(2)
+	if ok {
+		details := runtime.FuncForPC(pc)
+		if details != nil {
+			caller = details.Name()
+		} else {
+			logger.Error("Failed to get details from runtime.FuncForPC")
+		}
+	} else {
+		logger.Error("Failed to get PC from runtime.Caller")
+	}
+
+	return caller
+}
 
 // Min returns the smallest of two integers
 func Min(a int, b int) int {
@@ -23,9 +45,13 @@ func Min(a int, b int) int {
 
 // Backoff sleeps for random(0, 2^i*100) milliseconds and can be used for exponentially backing off by calling it with
 // increasingly high values for i. The random factor is used to introduce jitter and avoid deterministic wait periods
-// between retries. The parameter caller is free text string used to identify the function calling Backoff, and logger
-// is a pointer to an already initialized instance of zap.Logger.
-func Backoff(i int, caller string, logger *zap.Logger) {
+// between retries. The parameter logger is a pointer to an already initialized instance of zap.Logger.
+func Backoff(i int, logger *zap.Logger) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	// 2^i -- this will always be used for very small values (number of retries), so the signed/unsigned type casts
 	// are safe
 	var wait int64 = 1
@@ -108,7 +134,7 @@ func sendHTTPRequest(
 				zap.Error(err),
 				zap.String("caller", caller),
 			)
-			Backoff(i, caller, logger)
+			Backoff(i, logger)
 			continue
 		}
 
@@ -116,7 +142,7 @@ func sendHTTPRequest(
 		resp.Body.Close()
 		if err != nil {
 			logger.Debug("Failed to read the response body", zap.Error(err), zap.String("caller", caller))
-			Backoff(i, caller, logger)
+			Backoff(i, logger)
 			continue
 		}
 
@@ -132,7 +158,7 @@ func sendHTTPRequest(
 			if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
 				// save for return
 				status = resp.StatusCode
-				Backoff(i, caller, logger)
+				Backoff(i, logger)
 			}
 		}
 	}
@@ -152,8 +178,12 @@ func DoGet(
 	client *http.Client,
 	maxRetries int,
 	logger *zap.Logger,
-	caller string,
 ) (int, []byte) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	return sendHTTPRequest(url, nil, headers, "GET", client, maxRetries, logger, caller)
 }
 
@@ -164,8 +194,12 @@ func DoPost(
 	client *http.Client,
 	maxRetries int,
 	logger *zap.Logger,
-	caller string,
 ) (int, []byte) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	return sendHTTPRequest(url, payload, headers, "POST", client, maxRetries, logger, caller)
 }
 
@@ -176,8 +210,12 @@ func DoPut(
 	client *http.Client,
 	maxRetries int,
 	logger *zap.Logger,
-	caller string,
 ) (int, []byte) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	return sendHTTPRequest(url, payload, headers, "PUT", client, maxRetries, logger, caller)
 }
 
@@ -188,7 +226,11 @@ func DoDelete(
 	client *http.Client,
 	maxRetries int,
 	logger *zap.Logger,
-	caller string,
 ) (int, []byte) {
+	caller := getCaller(logger)
+	if caller == "" {
+		caller = "unknown"
+	}
+
 	return sendHTTPRequest(url, payload, headers, "DELETE", client, maxRetries, logger, caller)
 }
