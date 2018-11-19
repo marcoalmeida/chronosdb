@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -44,5 +45,25 @@ func TestBackoff(t *testing.T) {
 }
 
 func TestEnsureDirectory(t *testing.T) {
+	path := "/tmp/test-chronosdb-ensure-directory"
+	// make sure the test directory does not already exist
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("Directory already exists:", path)
+	}
 
+	err := EnsureDirectory(path)
+	if err != nil {
+		t.Error("Failed to create directory:", err)
+	}
+
+	// make sure it does exist
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Error("Directory does not exist:", path)
+	}
+
+	// cleanup
+	err = os.Remove(path)
+	if err != nil {
+		t.Error("Failed to cleanup:", err)
+	}
 }
